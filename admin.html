@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dochádzka Admin</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#172033;--muted:#667085;--line:#dfe4ec;--accent:#2563eb;--danger:#b42318;--ok:#067647}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text)}
+button,input,select{font:inherit}.hidden{display:none!important}.wrap{max-width:1280px;margin:auto;padding:24px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px}.login{max-width:420px;margin:12vh auto}
+h1,h2,h3{margin:0 0 12px}.muted{color:var(--muted);font-size:13px}label{display:block;font-size:13px;font-weight:600;margin:10px 0 5px}
+input,select{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+button{border:0;border-radius:9px;padding:9px 12px;cursor:pointer;font-weight:600}.primary{background:var(--accent);color:#fff}.ghost{background:#eef2f7}.danger{background:#fee4e2;color:var(--danger)}.ok{background:#dcfae6;color:var(--ok)}
+.top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.tabs button.active{background:var(--accent);color:#fff}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{font-size:28px;font-weight:800}
+.table{overflow:auto;border:1px solid var(--line);border-radius:12px;background:#fff}table{width:100%;border-collapse:collapse;min-width:900px}th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;font-size:14px;white-space:nowrap}th{background:#f8fafc;color:#667085;font-size:12px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.section{margin-top:18px}.badge{padding:4px 8px;border-radius:99px;background:#eef2f7;font-size:12px;font-weight:700}.pending{background:#fff4e5}.approved{background:#dcfae6;color:#067647}.rejected{background:#fee4e2;color:#b42318}
+dialog{border:0;border-radius:14px;width:min(620px,94vw);padding:0}dialog::backdrop{background:#0006}.modal{padding:18px}
+@media(max-width:760px){.stats,.grid{grid-template-columns:1fr 1fr}.wrap{padding:12px}}@media(max-width:480px){.stats,.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section id="loginCard" class="card login">
+    <h1>Dochádzka Admin</h1><p class="muted">Prihlásenie administrátora</p>
+    <label>Login</label><input id="login" value="admin">
+    <label>Heslo</label><input id="password" type="password">
+    <button id="loginBtn" class="primary" style="width:100%;margin-top:14px">Prihlásiť</button>
+    <p id="loginError" style="color:#b42318"></p>
+  </section>
+
+  <section id="app" class="hidden">
+    <div class="top"><div><h2>Dochádzka</h2><div class="muted">Online administrácia</div></div><button id="logout" class="ghost">Odhlásiť</button></div>
+    <div class="tabs">
+      <button data-tab="dashboard" class="active">Prehľad</button>
+      <button data-tab="employees">Zamestnanci</button>
+      <button data-tab="locations">Prevádzky</button>
+      <button data-tab="attendance">Dochádzka</button>
+      <button data-tab="export">Export</button>
+    </div>
+
+    <div id="dashboard" class="tab">
+      <div class="stats">
+        <div class="card"><div class="muted">Zamestnanci</div><div id="sEmp" class="stat">0</div></div>
+        <div class="card"><div class="muted">Prevádzky</div><div id="sLoc" class="stat">0</div></div>
+        <div class="card"><div class="muted">Čaká na schválenie</div><div id="sPend" class="stat">0</div></div>
+        <div class="card"><div class="muted">Záznamy</div><div id="sAtt" class="stat">0</div></div>
+      </div>
+      <div class="section"><h3>Na schválenie</h3><div class="table"><table><thead><tr><th>Dátum</th><th>Zamestnanec</th><th>Prevádzka</th><th>Typ</th><th>Čas</th><th>Akcia</th></tr></thead><tbody id="pendingBody"></tbody></table></div></div>
+    </div>
+
+    <div id="employees" class="tab hidden">
+      <div class="top"><div><h3>Zamestnanci</h3><div class="muted">Admin vytvára prihlasovacie údaje.</div></div><button id="newEmployee" class="primary">+ Zamestnanec</button></div>
+      <div class="table"><table><thead><tr><th>Os. číslo</th><th>Meno</th><th>Login</th><th>Prevádzka</th><th>Stav</th><th>Akcia</th></tr></thead><tbody id="empBody"></tbody></table></div>
+    </div>
+
+    <div id="locations" class="tab hidden">
+      <div class="top"><div><h3>Prevádzky</h3></div><button id="newLocation" class="primary">+ Prevádzka</button></div>
+      <div class="table"><table><thead><tr><th>Názov</th><th>Mesto</th><th>Adresa</th></tr></thead><tbody id="locBody"></tbody></table></div>
+    </div>
+
+    <div id="attendance" class="tab hidden">
+      <div class="grid">
+        <div><label>Od</label><input id="fFrom" type="date"></div>
+        <div><label>Do</label><input id="fTo" type="date"></div>
+        <div><label>Zamestnanec</label><select id="fUser"><option value="">Všetci</option></select></div>
+        <div><label>Prevádzka</label><select id="fLoc"><option value="">Všetky</option></select></div>
+      </div>
+      <div class="section table"><table><thead><tr><th>Dátum</th><th>Os. číslo</th><th>Meno</th><th>Prevádzka</th><th>Typ</th><th>Čas</th><th>Hodiny</th><th>Stav</th></tr></thead><tbody id="attBody"></tbody></table></div>
+    </div>
+
+    <div id="export" class="tab hidden">
+      <div class="card">
+        <h3>CSV export</h3>
+        <div class="grid">
+          <div><label>Od</label><input id="eFrom" type="date"></div><div><label>Do</label><input id="eTo" type="date"></div>
+          <div><label>Zamestnanec</label><select id="eUser"><option value="">Všetci</option></select></div>
+          <div><label>Prevádzka</label><select id="eLoc"><option value="">Všetky</option></select></div>
+        </div>
+        <button id="download" class="primary" style="margin-top:14px">Stiahnuť CSV</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<dialog id="empDialog"><div class="modal"><div class="top"><h3>Nový zamestnanec</h3><button data-close="empDialog" class="ghost">Zavrieť</button></div>
+<div class="grid"><div><label>Osobné číslo</label><input id="en"></div><div><label>Meno</label><input id="ename"></div><div><label>Login</label><input id="elogin"></div><div><label>Heslo</label><input id="epass" type="password"></div><div><label>Prevádzka</label><select id="eloc"></select></div></div>
+<button id="saveEmp" class="primary" style="margin-top:14px">Uložiť</button></div></dialog>
+
+<dialog id="locDialog"><div class="modal"><div class="top"><h3>Nová prevádzka</h3><button data-close="locDialog" class="ghost">Zavrieť</button></div>
+<label>Názov</label><input id="lname"><label>Mesto</label><input id="lcity"><label>Adresa</label><input id="laddr"><button id="saveLoc" class="primary" style="margin-top:14px">Uložiť</button></div></dialog>
+
+<script>
+let token=localStorage.getItem("dochadzka_token")||"", users=[], locations=[], attendance=[];
+const $=id=>document.getElementById(id);
+const api=async(path,opt={})=>{
+  opt.headers={...(opt.headers||{}),"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})};
+  const r=await fetch(path,opt); if(!r.ok){let m="Chyba";try{m=(await r.json()).detail||m}catch{};throw new Error(m)};return r.headers.get("content-type")?.includes("json")?r.json():r;
+};
+const status=s=>`<span class="badge ${s}">${s==="approved"?"Schválené":s==="pending"?"Čaká":"Zamietnuté"}</span>`;
+async function login(){
+  try{
+    const d=await api("/api/auth/login",{method:"POST",body:JSON.stringify({login:$("login").value,password:$("password").value})});
+    if(d.user.role!=="admin")throw new Error("Toto rozhranie je len pre admina");
+    token=d.access_token;localStorage.setItem("dochadzka_token",token);$("loginCard").classList.add("hidden");$("app").classList.remove("hidden");await refresh();
+  }catch(e){$("loginError").textContent=e.message}
+}
+async function refresh(){
+  [users,locations,attendance]=await Promise.all([api("/api/users"),api("/api/locations"),api("/api/attendance")]);
+  $("sEmp").textContent=users.length;$("sLoc").textContent=locations.length;$("sPend").textContent=attendance.filter(x=>x.status==="pending").length;$("sAtt").textContent=attendance.length;
+  $("locBody").innerHTML=locations.map(x=>`<tr><td><b>${x.name}</b></td><td>${x.city}</td><td>${x.address}</td></tr>`).join("");
+  $("empBody").innerHTML=users.map(x=>`<tr><td><b>${x.personal_number}</b></td><td>${x.name}</td><td>${x.login}</td><td>${x.location_name||""}</td><td>${x.active?"Aktívny":"Neaktívny"}</td><td><button class="ghost toggle" data-id="${x.id}">${x.active?"Deaktivovať":"Aktivovať"}</button></td></tr>`).join("");
+  document.querySelectorAll(".toggle").forEach(b=>b.onclick=async()=>{await api(`/api/users/${b.dataset.id}/active`,{method:"PATCH"});await refresh()});
+  const uopts=users.map(x=>`<option value="${x.id}">${x.personal_number} – ${x.name}</option>`).join("");
+  const lopts=locations.map(x=>`<option value="${x.id}">${x.name}</option>`).join("");
+  ["fUser","eUser"].forEach(id=>$(id).innerHTML='<option value="">Všetci</option>'+uopts);
+  ["fLoc","eLoc"].forEach(id=>$(id).innerHTML='<option value="">Všetky</option>'+lopts);$("eloc").innerHTML=lopts;
+  renderAttendance();renderPending();
+}
+function renderPending(){
+  const p=attendance.filter(x=>x.status==="pending");
+  $("pendingBody").innerHTML=p.map(x=>`<tr><td>${x.work_date}</td><td>${x.user_name}</td><td>${x.location_name}</td><td>${x.type}</td><td>${x.time_from||"—"} ${x.time_to?"– "+x.time_to:""}</td><td><div class="row"><button class="ok approve" data-id="${x.id}">Schváliť</button><button class="danger reject" data-id="${x.id}">Zamietnuť</button></div></td></tr>`).join("")||'<tr><td colspan="6">Žiadne čakajúce záznamy.</td></tr>';
+  document.querySelectorAll(".approve").forEach(b=>b.onclick=()=>setStatus(b.dataset.id,"approved"));document.querySelectorAll(".reject").forEach(b=>b.onclick=()=>setStatus(b.dataset.id,"rejected"));
+}
+async function setStatus(id,s){await api(`/api/attendance/${id}/status`,{method:"PATCH",body:JSON.stringify({status:s})});await refresh()}
+function renderAttendance(){
+  const u=$("fUser").value,l=$("fLoc").value,fr=$("fFrom").value,to=$("fTo").value;
+  const a=attendance.filter(x=>(!u||String(x.user_id)===u)&&(!l||String(x.location_id)===l)&&(!fr||x.work_date>=fr)&&(!to||x.work_date<=to));
+  $("attBody").innerHTML=a.map(x=>`<tr><td>${x.work_date}</td><td>${x.personal_number}</td><td>${x.user_name}</td><td>${x.location_name}</td><td>${x.type}</td><td>${x.time_from||"—"} ${x.time_to?"– "+x.time_to:""}</td><td>${x.hours.toFixed(2)}</td><td>${status(x.status)}</td></tr>`).join("");
+}
+$("loginBtn").onclick=login;$("logout").onclick=()=>{localStorage.removeItem("dochadzka_token");location.reload()};
+document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.add("hidden"));$(b.dataset.tab).classList.remove("hidden");document.querySelectorAll("[data-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active")});
+document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).close());
+$("newEmployee").onclick=()=>$("empDialog").showModal();$("newLocation").onclick=()=>$("locDialog").showModal();
+$("saveLoc").onclick=async()=>{await api("/api/locations",{method:"POST",body:JSON.stringify({name:$("lname").value,city:$("lcity").value,address:$("laddr").value})});$("locDialog").close();await refresh()};
+$("saveEmp").onclick=async()=>{await api("/api/users",{method:"POST",body:JSON.stringify({personal_number:$("en").value,name:$("ename").value,login:$("elogin").value,password:$("epass").value,location_id:Number($("eloc").value),active:true})});$("empDialog").close();await refresh()};
+["fFrom","fTo","fUser","fLoc"].forEach(id=>$(id).oninput=renderAttendance);
+$("download").onclick=async()=>{
+  const q=new URLSearchParams();if($("eFrom").value)q.set("date_from",$("eFrom").value);if($("eTo").value)q.set("date_to",$("eTo").value);if($("eUser").value)q.set("user_id",$("eUser").value);if($("eLoc").value)q.set("location_id",$("eLoc").value);
+  const r=await fetch("/api/export.csv?"+q.toString(),{headers:{Authorization:"Bearer "+token}});if(!r.ok)return alert("Export zlyhal");const b=await r.blob(),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download="dochadzka_export.csv";a.click();URL.revokeObjectURL(u)
+};
+const m=new Date(),first=new Date(m.getFullYear(),m.getMonth(),1).toISOString().slice(0,10),last=new Date(m.getFullYear(),m.getMonth()+1,0).toISOString().slice(0,10);
+["fFrom","eFrom"].forEach(id=>$(id).value=first);["fTo","eTo"].forEach(id=>$(id).value=last);
+if(token){$("loginCard").classList.add("hidden");$("app").classList.remove("hidden");refresh().catch(()=>{localStorage.removeItem("dochadzka_token");location.reload()})}
+</script>
+</body>
+</html>

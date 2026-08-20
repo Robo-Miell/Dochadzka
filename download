@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.db
+.DS_Store
+.idea/
+.vscode/
+mobile_flutter/.dart_tool/
+mobile_flutter/build/
