@@ -31,9 +31,11 @@ jobs:
         working-directory: mobile_flutter
         run: flutter pub get
 
-      - name: Generate MIELL app icon
+     - name: Generate MIELL app icon
         working-directory: mobile_flutter
-        run: dart run flutter_launcher_icons
+        run: |
+          sed -i 's/  ios: true/  ios: false/' pubspec.yaml
+          dart run flutter_launcher_icons
 
       - name: Set Android app name
         working-directory: mobile_flutter
