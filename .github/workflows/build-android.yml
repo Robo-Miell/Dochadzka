@@ -17,7 +17,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-     - name: Install Flutter
+      - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -26,7 +26,6 @@ jobs:
       - name: Create Android platform files
         working-directory: mobile_flutter
         run: flutter create . --platforms=android --project-name dochadzka_mobile --org sk.miell
-
 
       - name: Enable Android internet access
         working-directory: mobile_flutter
