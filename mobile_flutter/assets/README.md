@@ -1,0 +1,1 @@
+Grafické súbory mobilnej aplikácie
