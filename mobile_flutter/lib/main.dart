@@ -328,11 +328,13 @@ class BrandAppTitle extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: Image.asset('assets/app_icon.png', width: 32, height: 32),
+        Image.asset(
+          'assets/miell_quality.png',
+          width: 92,
+          height: 36,
+          fit: BoxFit.contain,
         ),
-        const SizedBox(width: 9),
+        const SizedBox(width: 10),
         Flexible(child: Text(title)),
       ],
     );
@@ -1021,24 +1023,6 @@ class _AdminHomeState extends State<AdminHome> {
     const titles = ['Zamestnanci', 'Prevádzky', 'Dochádzka'];
     return Scaffold(
       appBar: AppBar(
-  titleSpacing: 8,
-  title: Row(
-    children: [
-      Image.asset(
-        'assets/miell_quality.png',
-        height: 30,
-        fit: BoxFit.contain,
-      ),
-      const SizedBox(width: 10),
-      const Expanded(
-        child: Text(
-          'Moja dochádzka',
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    ],
-  ),
-),
         title: BrandAppTitle('Admin – ${titles[index]}'),
         actions: [
           IconButton(onPressed: refresh, icon: const Icon(Icons.refresh)),
