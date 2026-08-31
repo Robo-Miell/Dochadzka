@@ -31,6 +31,18 @@ jobs:
         working-directory: mobile_flutter
         run: flutter pub get
 
+      - name: Configure iOS icon only
+        working-directory: mobile_flutter
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("pubspec.yaml")
+          text = p.read_text(encoding="utf-8")
+          text = text.replace("  android: true", "  android: false")
+          p.write_text(text, encoding="utf-8")
+          PY
+
       - name: Generate MIELL app icon
         working-directory: mobile_flutter
         run: dart run flutter_launcher_icons
@@ -41,12 +53,16 @@ jobs:
           python3 - <<'PY'
           import plistlib
           from pathlib import Path
-          p = Path('ios/Runner/Info.plist')
-          with p.open('rb') as f:
+
+          p = Path("ios/Runner/Info.plist")
+
+          with p.open("rb") as f:
               data = plistlib.load(f)
-          data['CFBundleDisplayName'] = 'MIELL Dochádzka'
-          data['CFBundleName'] = 'MIELL Dochádzka'
-          with p.open('wb') as f:
+
+          data["CFBundleDisplayName"] = "MIELL Dochádzka"
+          data["CFBundleName"] = "MIELL Dochádzka"
+
+          with p.open("wb") as f:
               plistlib.dump(data, f)
           PY
 
@@ -61,7 +77,10 @@ jobs:
 
       - name: Pack unsigned app
         working-directory: mobile_flutter
-        run: ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app build/MIELL-Dochadzka-iOS-UNSIGNED.zip
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+          build/ios/iphoneos/Runner.app \
+          build/MIELL-Dochadzka-iOS-UNSIGNED.zip
 
       - name: Upload unsigned iOS build
         uses: actions/upload-artifact@v4
@@ -70,3 +89,4 @@ jobs:
           path: mobile_flutter/build/MIELL-Dochadzka-iOS-UNSIGNED.zip
           if-no-files-found: error
           retention-days: 30
+          
