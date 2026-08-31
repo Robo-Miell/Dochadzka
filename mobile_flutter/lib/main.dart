@@ -1021,6 +1021,24 @@ class _AdminHomeState extends State<AdminHome> {
     const titles = ['Zamestnanci', 'Prevádzky', 'Dochádzka'];
     return Scaffold(
       appBar: AppBar(
+  titleSpacing: 8,
+  title: Row(
+    children: [
+      Image.asset(
+        'assets/miell_quality.png',
+        height: 30,
+        fit: BoxFit.contain,
+      ),
+      const SizedBox(width: 10),
+      const Expanded(
+        child: Text(
+          'Moja dochádzka',
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ],
+  ),
+),
         title: BrandAppTitle('Admin – ${titles[index]}'),
         actions: [
           IconButton(onPressed: refresh, icon: const Icon(Icons.refresh)),
