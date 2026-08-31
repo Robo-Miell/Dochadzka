@@ -23,9 +23,23 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Create Android platform files
+      - name: Enable Android internet access
         working-directory: mobile_flutter
-        run: flutter create . --platforms=android --project-name dochadzka_mobile --org sk.miell
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          text = p.read_text(encoding="utf-8")
+
+          permission = '<uses-permission android:name="android.permission.INTERNET" />'
+
+          if permission not in text:
+              pos = text.find(">")
+              text = text[:pos + 1] + "\n    " + permission + text[pos + 1:]
+
+          p.write_text(text, encoding="utf-8")
+          PY
 
       - name: Install dependencies
         working-directory: mobile_flutter
