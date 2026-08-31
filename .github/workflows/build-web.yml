@@ -36,6 +36,54 @@ jobs:
         working-directory: mobile_flutter
         run: flutter pub get
 
+      - name: Apply MIELL web branding
+        working-directory: mobile_flutter
+        run: |
+          cp assets/app_icon.png web/miell-favicon.png
+          cp assets/app_icon.png web/icons/Icon-192.png
+          cp assets/app_icon.png web/icons/Icon-512.png
+          cp assets/app_icon.png web/icons/Icon-maskable-192.png
+          cp assets/app_icon.png web/icons/Icon-maskable-512.png
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          # index.html
+          index_path = Path("web/index.html")
+          text = index_path.read_text(encoding="utf-8")
+
+          text = text.replace(
+              'href="favicon.png"',
+              'href="miell-favicon.png?v=20260831"'
+          )
+
+          text = text.replace(
+              '<title>dochadzka_mobile</title>',
+              '<title>MIELL Dochádzka</title>'
+          )
+
+          text = text.replace(
+              'content="dochadzka_mobile"',
+              'content="MIELL Dochádzka"'
+          )
+
+          index_path.write_text(text, encoding="utf-8")
+
+          # manifest.json
+          manifest_path = Path("web/manifest.json")
+          data = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+          data["name"] = "MIELL Dochádzka"
+          data["short_name"] = "Dochádzka"
+          data["description"] = "MIELL dochádzková aplikácia"
+
+          manifest_path.write_text(
+              json.dumps(data, ensure_ascii=False, indent=2),
+              encoding="utf-8"
+          )
+          PY
+
       - name: Build Flutter Web
         working-directory: mobile_flutter
         run: >-
