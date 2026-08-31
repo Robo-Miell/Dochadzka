@@ -1,0 +1,86 @@
+name: Build Android - small APKs
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'mobile_flutter/**'
+      - '.github/workflows/build-android.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create Android platform files
+        working-directory: mobile_flutter
+        run: flutter create . --platforms=android --project-name dochadzka_mobile --org sk.miell
+
+      - name: Install dependencies
+        working-directory: mobile_flutter
+        run: flutter pub get
+
+      - name: Generate MIELL app icon
+        working-directory: mobile_flutter
+        run: dart run flutter_launcher_icons
+
+      - name: Set Android app name
+        working-directory: mobile_flutter
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/src/main/AndroidManifest.xml')
+          s = p.read_text()
+          s = s.replace('android:label="dochadzka_mobile"', 'android:label="MIELL Dochádzka"')
+          p.write_text(s)
+          PY
+
+      - name: Build size-optimized split APKs
+        working-directory: mobile_flutter
+        run: >-
+          flutter build apk
+          --release
+          --split-per-abi
+          --split-debug-info=build/symbols
+          --dart-define=API_URL=https://dochadzka1.onrender.com
+
+      - name: Build Android App Bundle
+        working-directory: mobile_flutter
+        run: >-
+          flutter build appbundle
+          --release
+          --split-debug-info=build/symbols-aab
+          --dart-define=API_URL=https://dochadzka1.onrender.com
+
+      - name: Show file sizes
+        working-directory: mobile_flutter
+        run: |
+          ls -lh build/app/outputs/flutter-apk/*.apk
+          ls -lh build/app/outputs/bundle/release/*.aab
+
+      - name: Upload split APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dochadzka-Android-SMALL-APKs
+          path: mobile_flutter/build/app/outputs/flutter-apk/*-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Play Store AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dochadzka-Android-PlayStore-AAB
+          path: mobile_flutter/build/app/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 30
