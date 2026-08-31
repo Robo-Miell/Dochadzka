@@ -1,0 +1,70 @@
+name: Build Web PWA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'mobile_flutter/**'
+      - '.github/workflows/build-web.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create Web platform files
+        working-directory: mobile_flutter
+        run: flutter create . --platforms=web --project-name dochadzka_mobile --org sk.miell
+
+      - name: Install dependencies
+        working-directory: mobile_flutter
+        run: flutter pub get
+
+      - name: Build Flutter Web
+        working-directory: mobile_flutter
+        run: >-
+          flutter build web
+          --release
+          --base-href /Dochadzka/
+          --dart-define=API_URL=https://dochadzka1.onrender.com
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: mobile_flutter/build/web
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+    needs: build
+
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
