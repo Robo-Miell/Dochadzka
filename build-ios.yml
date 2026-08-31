@@ -1,0 +1,72 @@
+name: Build iOS - unsigned validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'mobile_flutter/**'
+      - '.github/workflows/build-ios.yml'
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create iOS platform files
+        working-directory: mobile_flutter
+        run: flutter create . --platforms=ios --project-name dochadzka_mobile --org sk.miell
+
+      - name: Install dependencies
+        working-directory: mobile_flutter
+        run: flutter pub get
+
+      - name: Generate MIELL app icon
+        working-directory: mobile_flutter
+        run: dart run flutter_launcher_icons
+
+      - name: Set iOS app name
+        working-directory: mobile_flutter
+        run: |
+          python3 - <<'PY'
+          import plistlib
+          from pathlib import Path
+          p = Path('ios/Runner/Info.plist')
+          with p.open('rb') as f:
+              data = plistlib.load(f)
+          data['CFBundleDisplayName'] = 'MIELL Dochádzka'
+          data['CFBundleName'] = 'MIELL Dochádzka'
+          with p.open('wb') as f:
+              plistlib.dump(data, f)
+          PY
+
+      - name: Build iOS without code signing
+        working-directory: mobile_flutter
+        run: >-
+          flutter build ios
+          --release
+          --no-codesign
+          --split-debug-info=build/symbols-ios
+          --dart-define=API_URL=https://dochadzka1.onrender.com
+
+      - name: Pack unsigned app
+        working-directory: mobile_flutter
+        run: ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app build/MIELL-Dochadzka-iOS-UNSIGNED.zip
+
+      - name: Upload unsigned iOS build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dochadzka-iOS-UNSIGNED
+          path: mobile_flutter/build/MIELL-Dochadzka-iOS-UNSIGNED.zip
+          if-no-files-found: error
+          retention-days: 30

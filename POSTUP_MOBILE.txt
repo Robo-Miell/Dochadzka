@@ -1,0 +1,46 @@
+MIELL DOCHÁDZKA – ANDROID + iOS
+================================
+
+API:
+https://dochadzka1.onrender.com
+
+ANDROID – MENŠIE APK
+--------------------
+GitHub Actions -> "Build Android - small APKs" -> Run workflow.
+
+Výsledok "Dochadzka-Android-SMALL-APKs" obsahuje samostatné APK podľa procesora:
+- app-arm64-v8a-release.apk  = väčšina dnešných Android telefónov
+- app-armeabi-v7a-release.apk = staršie 32-bit Android telefóny
+- app-x86_64-release.apk = najmä emulátory / niektoré špeciálne zariadenia
+
+Pôvodné app-release.apk malo v sebe viac architektúr naraz, preto bolo výrazne väčšie.
+Nový workflow používa --split-per-abi a --split-debug-info.
+Presnú veľkosť uvidíš v logu GitHub Actions po zostavení.
+
+Pre Google Play používaj artifact:
+Dochadzka-Android-PlayStore-AAB
+
+IOS
+---
+Flutter zdroj už je spoločný pre Android aj iOS a logo sa generuje aj pre iOS.
+GitHub Actions -> "Build iOS - unsigned validation" vytvorí nepodpísaný iOS build.
+
+DÔLEŽITÉ:
+Na inštaláciu do reálneho iPhonu alebo publikovanie do App Store/TestFlight treba Apple Developer účet,
+Apple signing certifikát/provisioning a macOS/Xcode. Bez podpisu sa výsledný iOS build nedá bežne
+nainštalovať do cudzieho iPhonu.
+
+LOGO
+----
+- assets/miell_quality.png = logo v prihlasovacej obrazovke
+- assets/app_icon.png = ikona aplikácie Android/iOS
+
+AKTUÁLNY MESIAC
+---------------
+Po prihlásení zamestnanca sa načíta iba aktuálny mesiac.
+Mesiac sa dá meniť šípkami alebo ťuknutím na názov mesiaca.
+
+ADMIN V MOBILNEJ APLIKÁCII
+---------------------------
+Admin účet má v aplikácii sekcie Zamestnanci, Prevádzky a Dochádzka.
+Vie vytvárať a upravovať údaje, meniť heslo zamestnanca, upravovať dochádzku a mazať záznamy.

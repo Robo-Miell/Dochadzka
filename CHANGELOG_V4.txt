@@ -1,0 +1,30 @@
+MIELL DOCHÁDZKA v4 – ZMENY
+==========================
+
+1. WEB ADMIN
+- plná editácia zamestnancov vrátane zmeny hesla
+- editácia a mazanie nepoužitých prevádzok
+- vytváranie, editácia a mazanie dochádzky
+- editácia času od/do, prestávky, poznámky a stavu
+- MIELL Quality branding
+
+2. MOBILNÁ APLIKÁCIA
+- MIELL Quality logo na prihlasovacej obrazovke
+- vlastná MIELL ikona aplikácie
+- zelená MIELL farebnosť
+- zamestnanec po otvorení vidí aktuálny mesiac
+- prepínanie mesiacov šípkami alebo výberom mesiaca
+- súhrn hodín sa počíta iba za vybraný mesiac
+- zamestnanec môže odstrániť svoj čakajúci záznam
+- admin má priamo v mobilnej aplikácii správu zamestnancov, prevádzok a dochádzky
+
+3. VEĽKOSŤ ANDROID APK
+- namiesto jedného veľkého universal/fat APK sa vytvárajú split APK podľa CPU architektúry
+- použitý --split-per-abi a --split-debug-info
+- workflow zároveň vytvorí AAB pre Google Play
+- presná veľkosť závisí od aktuálnej verzie Flutteru a zostavenia; zobrazí sa v GitHub Actions
+
+4. iOS
+- rovnaký Flutter zdroj podporuje iOS
+- pridaný macOS GitHub Actions workflow pre nepodpísaný iOS build
+- pre inštaláciu na iPhone/TestFlight/App Store je potrebný Apple Developer účet a code signing

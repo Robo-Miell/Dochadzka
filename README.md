@@ -1,50 +1,17 @@
-# Flutter mobilná aplikácia
+# MIELL Dochádzka v4
 
-Mobilný klient pre Android/iOS.
+Backend + web admin pre Render a Flutter klient pre Android/iOS.
 
-## Prvé vytvorenie platformových súborov
+## Web admin
+`https://dochadzka1.onrender.com/admin`
 
-V priečinku `mobile_flutter`:
+Backend súbory sú v koreňovom adresári. Render používa `render.yaml`.
 
-```bash
-flutter create . --platforms=android,ios
-flutter pub get
-```
+## Mobilná aplikácia
+Flutter zdroj je v `mobile_flutter/`.
 
-Potom používaj existujúci `lib/main.dart` a `pubspec.yaml`.
+GitHub Actions:
+- **Build Android - small APKs** – split APK + AAB
+- **Build iOS - unsigned validation** – overenie iOS buildu bez Apple podpisu
 
-## Vývoj
-
-Android emulátor + lokálny server:
-
-```bash
-flutter run --dart-define=API_URL=http://10.0.2.2:8000
-```
-
-Fyzický mobil musí používať IP adresu PC/servera, napr.:
-
-```bash
-flutter run --dart-define=API_URL=http://192.168.1.50:8000
-```
-
-Online:
-
-```bash
-flutter run --dart-define=API_URL=https://dochadzka.firma.sk
-```
-
-## Release
-
-Android:
-
-```bash
-flutter build apk --release --dart-define=API_URL=https://dochadzka.firma.sk
-```
-
-iOS:
-
-```bash
-flutter build ipa --release --dart-define=API_URL=https://dochadzka.firma.sk
-```
-
-iOS build vyžaduje macOS, Xcode a Apple signing.
+Podrobnosti sú v `README_RENDER.txt` a `POSTUP_MOBILE.txt`.

@@ -1,18 +1,18 @@
 import csv
 import io
 import os
+import re
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
-from jose import jwt, JWTError
+from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import create_engine, String, Integer, Boolean, Date, Time, ForeignKey, Text, select
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker, Session
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text, create_engine, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dochadzka.db")
 JWT_SECRET = os.getenv("JWT_SECRET", "change-this-secret")
@@ -25,8 +25,11 @@ ADMIN_NAME = os.getenv("ADMIN_NAME", "Administrátor")
 engine_args = {"connect_args": {"check_same_thread": False}} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, **engine_args)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
-
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+VALID_TYPES = {"Práca", "Dovolenka", "Lekár", "PN", "OČR", "Náhradné voľno", "Iné"}
+VALID_STATUSES = {"approved", "rejected", "pending"}
+TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
 
 class Base(DeclarativeBase):
@@ -83,6 +86,12 @@ class LocationIn(BaseModel):
     address: str = ""
 
 
+class LocationUpdate(BaseModel):
+    name: Optional[str] = None
+    city: Optional[str] = None
+    address: Optional[str] = None
+
+
 class LocationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -100,6 +109,15 @@ class UserIn(BaseModel):
     active: bool = True
 
 
+class UserUpdate(BaseModel):
+    personal_number: Optional[str] = None
+    name: Optional[str] = None
+    login: Optional[str] = None
+    password: Optional[str] = None
+    location_id: Optional[int] = None
+    active: Optional[bool] = None
+
+
 class AttendanceIn(BaseModel):
     work_date: date
     location_id: int
@@ -111,12 +129,23 @@ class AttendanceIn(BaseModel):
     user_id: Optional[int] = None
 
 
+class AttendanceUpdate(BaseModel):
+    work_date: Optional[date] = None
+    location_id: Optional[int] = None
+    user_id: Optional[int] = None
+    type: Optional[str] = None
+    time_from: Optional[str] = None
+    time_to: Optional[str] = None
+    break_minutes: Optional[int] = None
+    note: Optional[str] = None
+    status: Optional[str] = None
+
+
 class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="3.0")
-
+app = FastAPI(title="Dochádzka API", version="4.0")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -126,8 +155,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-static_dir = os.path.join(os.path.dirname(__file__), "static")
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+static_dir = os.path.dirname(__file__)
 
 
 def db():
@@ -146,13 +174,6 @@ def token_for(user: User):
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
-
-def current_user(session: Session = Depends(db), authorization: Optional[str] = None):
-    # FastAPI does not inject arbitrary headers without Header(), keep wrapper below.
-    raise RuntimeError("Use get_current_user")
-
-
-from fastapi import Header
 
 def get_current_user(
     authorization: Optional[str] = Header(None),
@@ -188,6 +209,39 @@ def attendance_hours(a: Attendance) -> float:
         return max(0, mins / 60)
     except Exception:
         return 0.0
+
+
+def validate_time(value: Optional[str], field_name: str) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    value = value.strip()
+    if not TIME_RE.match(value):
+        raise HTTPException(400, f"{field_name} musí byť vo formáte HH:MM")
+    return value
+
+
+def normalize_attendance_fields(
+    item_type: str,
+    time_from: Optional[str],
+    time_to: Optional[str],
+    break_minutes: int,
+):
+    if item_type not in VALID_TYPES:
+        raise HTTPException(400, "Neplatný typ záznamu")
+    if break_minutes < 0 or break_minutes > 1440:
+        raise HTTPException(400, "Prestávka musí byť medzi 0 a 1440 minútami")
+
+    if item_type in {"Práca", "Lekár"}:
+        time_from = validate_time(time_from, "Čas od")
+        time_to = validate_time(time_to, "Čas do")
+    else:
+        time_from = None
+        time_to = None
+
+    if item_type != "Práca":
+        break_minutes = 0
+
+    return time_from, time_to, break_minutes
 
 
 def serialize_user(u: User):
@@ -243,7 +297,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "4.0", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -251,9 +305,17 @@ def admin_page():
     return FileResponse(os.path.join(static_dir, "admin.html"))
 
 
+@app.get("/brand.png")
+def brand_logo():
+    logo = os.path.join(static_dir, "brand.png")
+    if not os.path.exists(logo):
+        raise HTTPException(404, "Logo neexistuje")
+    return FileResponse(logo, media_type="image/png")
+
+
 @app.post("/api/auth/login")
 def login(data: LoginIn, session: Session = Depends(db)):
-    user = session.scalar(select(User).where(User.login == data.login))
+    user = session.scalar(select(User).where(User.login == data.login.strip()))
     if not user or not user.active or not pwd.verify(data.password, user.password_hash):
         raise HTTPException(401, "Nesprávny login alebo heslo")
     return {"access_token": token_for(user), "token_type": "bearer", "user": serialize_user(user)}
@@ -266,18 +328,72 @@ def me(user: User = Depends(get_current_user)):
 
 @app.get("/api/locations")
 def locations(session: Session = Depends(db), user: User = Depends(get_current_user)):
-    return [LocationOut.model_validate(x).model_dump() for x in session.scalars(select(Location).order_by(Location.name)).all()]
+    return [
+        LocationOut.model_validate(x).model_dump()
+        for x in session.scalars(select(Location).order_by(Location.name)).all()
+    ]
 
 
 @app.post("/api/locations")
 def create_location(data: LocationIn, session: Session = Depends(db), _: User = Depends(admin_only)):
-    if session.scalar(select(Location).where(Location.name == data.name)):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(400, "Názov prevádzky je povinný")
+    if session.scalar(select(Location).where(Location.name == name)):
         raise HTTPException(400, "Prevádzka s týmto názvom už existuje")
-    obj = Location(name=data.name.strip(), city=data.city.strip(), address=data.address.strip())
+    obj = Location(name=name, city=data.city.strip(), address=data.address.strip())
     session.add(obj)
     session.commit()
     session.refresh(obj)
     return LocationOut.model_validate(obj).model_dump()
+
+
+@app.patch("/api/locations/{location_id}")
+def update_location(
+    location_id: int,
+    data: LocationUpdate,
+    session: Session = Depends(db),
+    _: User = Depends(admin_only),
+):
+    obj = session.get(Location, location_id)
+    if not obj:
+        raise HTTPException(404, "Prevádzka neexistuje")
+
+    fields = data.model_fields_set
+    if "name" in fields:
+        name = (data.name or "").strip()
+        if not name:
+            raise HTTPException(400, "Názov prevádzky je povinný")
+        duplicate = session.scalar(select(Location).where(Location.name == name, Location.id != location_id))
+        if duplicate:
+            raise HTTPException(400, "Prevádzka s týmto názvom už existuje")
+        obj.name = name
+    if "city" in fields:
+        obj.city = (data.city or "").strip()
+    if "address" in fields:
+        obj.address = (data.address or "").strip()
+
+    session.commit()
+    session.refresh(obj)
+    return LocationOut.model_validate(obj).model_dump()
+
+
+@app.delete("/api/locations/{location_id}")
+def delete_location(
+    location_id: int,
+    session: Session = Depends(db),
+    _: User = Depends(admin_only),
+):
+    obj = session.get(Location, location_id)
+    if not obj:
+        raise HTTPException(404, "Prevádzka neexistuje")
+    if session.scalar(select(User.id).where(User.location_id == location_id).limit(1)):
+        raise HTTPException(409, "Prevádzku používa zamestnanec. Najprv ho presuň na inú prevádzku.")
+    if session.scalar(select(Attendance.id).where(Attendance.location_id == location_id).limit(1)):
+        raise HTTPException(409, "Prevádzka je použitá v dochádzke. Najprv odstráň alebo presuň tieto záznamy.")
+    session.delete(obj)
+    session.commit()
+    return {"ok": True}
 
 
 @app.get("/api/users")
@@ -288,22 +404,74 @@ def users(session: Session = Depends(db), _: User = Depends(admin_only)):
 
 @app.post("/api/users")
 def create_user(data: UserIn, session: Session = Depends(db), _: User = Depends(admin_only)):
-    if session.scalar(select(User).where(User.login == data.login)):
+    personal_number = data.personal_number.strip()
+    name = data.name.strip()
+    login_value = data.login.strip()
+    if not personal_number or not name or not login_value or not data.password:
+        raise HTTPException(400, "Osobné číslo, meno, login a heslo sú povinné")
+    if session.scalar(select(User).where(User.login == login_value)):
         raise HTTPException(400, "Login už existuje")
-    if session.scalar(select(User).where(User.personal_number == data.personal_number)):
+    if session.scalar(select(User).where(User.personal_number == personal_number)):
         raise HTTPException(400, "Osobné číslo už existuje")
     if not session.get(Location, data.location_id):
         raise HTTPException(400, "Prevádzka neexistuje")
     obj = User(
-        personal_number=data.personal_number.strip(),
-        name=data.name.strip(),
-        login=data.login.strip(),
+        personal_number=personal_number,
+        name=name,
+        login=login_value,
         password_hash=pwd.hash(data.password),
         role="employee",
         active=data.active,
         location_id=data.location_id,
     )
     session.add(obj)
+    session.commit()
+    session.refresh(obj)
+    return serialize_user(obj)
+
+
+@app.patch("/api/users/{user_id}")
+def update_user(
+    user_id: int,
+    data: UserUpdate,
+    session: Session = Depends(db),
+    _: User = Depends(admin_only),
+):
+    obj = session.get(User, user_id)
+    if not obj or obj.role != "employee":
+        raise HTTPException(404, "Zamestnanec neexistuje")
+
+    fields = data.model_fields_set
+    if "personal_number" in fields:
+        value = (data.personal_number or "").strip()
+        if not value:
+            raise HTTPException(400, "Osobné číslo je povinné")
+        duplicate = session.scalar(select(User).where(User.personal_number == value, User.id != user_id))
+        if duplicate:
+            raise HTTPException(400, "Osobné číslo už existuje")
+        obj.personal_number = value
+    if "name" in fields:
+        value = (data.name or "").strip()
+        if not value:
+            raise HTTPException(400, "Meno je povinné")
+        obj.name = value
+    if "login" in fields:
+        value = (data.login or "").strip()
+        if not value:
+            raise HTTPException(400, "Login je povinný")
+        duplicate = session.scalar(select(User).where(User.login == value, User.id != user_id))
+        if duplicate:
+            raise HTTPException(400, "Login už existuje")
+        obj.login = value
+    if "location_id" in fields:
+        if data.location_id is None or not session.get(Location, data.location_id):
+            raise HTTPException(400, "Prevádzka neexistuje")
+        obj.location_id = data.location_id
+    if "active" in fields and data.active is not None:
+        obj.active = data.active
+    if "password" in fields and data.password:
+        obj.password_hash = pwd.hash(data.password)
+
     session.commit()
     session.refresh(obj)
     return serialize_user(obj)
@@ -318,6 +486,18 @@ def toggle_user(user_id: int, session: Session = Depends(db), _: User = Depends(
     session.commit()
     session.refresh(u)
     return serialize_user(u)
+
+
+@app.delete("/api/users/{user_id}")
+def delete_user(user_id: int, session: Session = Depends(db), _: User = Depends(admin_only)):
+    obj = session.get(User, user_id)
+    if not obj or obj.role != "employee":
+        raise HTTPException(404, "Zamestnanec neexistuje")
+    if session.scalar(select(Attendance.id).where(Attendance.user_id == user_id).limit(1)):
+        raise HTTPException(409, "Zamestnanec má dochádzku. Najprv odstráň jeho dochádzkové záznamy alebo ho iba deaktivuj.")
+    session.delete(obj)
+    session.commit()
+    return {"ok": True}
 
 
 @app.get("/api/attendance")
@@ -353,24 +533,72 @@ def create_attendance(
     target_user = session.get(User, target_user_id)
     if not target_user or target_user.role != "employee":
         raise HTTPException(400, "Zamestnanec neexistuje")
-    location = session.get(Location, data.location_id)
-    if not location:
+    if not session.get(Location, data.location_id):
         raise HTTPException(400, "Prevádzka neexistuje")
-    valid_types = {"Práca", "Dovolenka", "Lekár", "PN", "OČR", "Náhradné voľno", "Iné"}
-    if data.type not in valid_types:
-        raise HTTPException(400, "Neplatný typ záznamu")
+
+    time_from, time_to, break_minutes = normalize_attendance_fields(
+        data.type, data.time_from, data.time_to, data.break_minutes
+    )
     obj = Attendance(
         work_date=data.work_date,
         user_id=target_user_id,
         location_id=data.location_id,
         type=data.type,
-        time_from=data.time_from if data.type in {"Práca", "Lekár"} else None,
-        time_to=data.time_to if data.type in {"Práca", "Lekár"} else None,
-        break_minutes=data.break_minutes if data.type == "Práca" else 0,
+        time_from=time_from,
+        time_to=time_to,
+        break_minutes=break_minutes,
         note=data.note.strip(),
         status="approved" if user.role == "admin" else "pending",
     )
     session.add(obj)
+    session.commit()
+    session.refresh(obj)
+    return serialize_attendance(obj)
+
+
+@app.patch("/api/attendance/{attendance_id}")
+def update_attendance(
+    attendance_id: int,
+    data: AttendanceUpdate,
+    session: Session = Depends(db),
+    _: User = Depends(admin_only),
+):
+    obj = session.get(Attendance, attendance_id)
+    if not obj:
+        raise HTTPException(404, "Záznam neexistuje")
+
+    fields = data.model_fields_set
+    if "work_date" in fields:
+        if data.work_date is None:
+            raise HTTPException(400, "Dátum je povinný")
+        obj.work_date = data.work_date
+    if "user_id" in fields:
+        target = session.get(User, data.user_id) if data.user_id is not None else None
+        if not target or target.role != "employee":
+            raise HTTPException(400, "Zamestnanec neexistuje")
+        obj.user_id = data.user_id
+    if "location_id" in fields:
+        if data.location_id is None or not session.get(Location, data.location_id):
+            raise HTTPException(400, "Prevádzka neexistuje")
+        obj.location_id = data.location_id
+    if "type" in fields:
+        if data.type is None or data.type not in VALID_TYPES:
+            raise HTTPException(400, "Neplatný typ záznamu")
+        obj.type = data.type
+    if "status" in fields:
+        if data.status is None or data.status not in VALID_STATUSES:
+            raise HTTPException(400, "Neplatný stav")
+        obj.status = data.status
+    if "note" in fields:
+        obj.note = (data.note or "").strip()
+
+    raw_from = data.time_from if "time_from" in fields else obj.time_from
+    raw_to = data.time_to if "time_to" in fields else obj.time_to
+    raw_break = data.break_minutes if "break_minutes" in fields and data.break_minutes is not None else obj.break_minutes
+    obj.time_from, obj.time_to, obj.break_minutes = normalize_attendance_fields(
+        obj.type, raw_from, raw_to, raw_break
+    )
+
     session.commit()
     session.refresh(obj)
     return serialize_attendance(obj)
@@ -383,7 +611,7 @@ def set_status(
     session: Session = Depends(db),
     _: User = Depends(admin_only),
 ):
-    if data.status not in {"approved", "rejected", "pending"}:
+    if data.status not in VALID_STATUSES:
         raise HTTPException(400, "Neplatný stav")
     obj = session.get(Attendance, attendance_id)
     if not obj:
