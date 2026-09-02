@@ -691,6 +691,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
   TimeOfDay from = const TimeOfDay(hour: 8, minute: 0);
   TimeOfDay to = const TimeOfDay(hour: 16, minute: 0);
   final breakCtrl = TextEditingController(text: '30');
+  bool deductBreak = true;
   final noteCtrl = TextEditingController();
   bool busy = false;
   String? error;
@@ -735,6 +736,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
           shifts = [];
           selectedShiftId = null;
           customWorkTime = true;
+          deductBreak = true;
         });
       }
       return;
@@ -749,11 +751,14 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
         if (items.isEmpty) {
           selectedShiftId = null;
           customWorkTime = true;
+          deductBreak = true;
         } else {
           customWorkTime = false;
           selectedShiftId = items.first['id'] as int;
           from = parseTime(items.first['time_from']?.toString(), from);
           to = parseTime(items.first['time_to']?.toString(), to);
+          breakCtrl.text = '${items.first['break_minutes'] ?? 0}';
+          deductBreak = items.first['deduct_break'] != false;
         }
       });
     } catch (_) {
@@ -762,6 +767,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
         shifts = [];
         selectedShiftId = null;
         customWorkTime = true;
+        deductBreak = true;
       });
     } finally {
       if (mounted) setState(() => loadingShifts = false);
@@ -779,6 +785,8 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
       selectedShiftId = id;
       from = parseTime(item['time_from']?.toString(), from);
       to = parseTime(item['time_to']?.toString(), to);
+      breakCtrl.text = '${item['break_minutes'] ?? 0}';
+      deductBreak = item['deduct_break'] != false;
     });
   }
 
@@ -799,6 +807,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
           'time_from': (type == 'Práca' || type == 'Lekár') ? formatTime(from) : null,
           'time_to': (type == 'Práca' || type == 'Lekár') ? formatTime(to) : null,
           'break_minutes': type == 'Práca' ? int.tryParse(breakCtrl.text) ?? 0 : 0,
+          'deduct_break': type == 'Práca' ? (customWorkTime || shifts.isEmpty ? true : deductBreak) : false,
           'note': noteCtrl.text.trim(),
         },
       );
@@ -874,7 +883,10 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
                 ),
                 value: customWorkTime,
                 onChanged: (value) {
-                  setState(() => customWorkTime = value);
+                  setState(() {
+                    customWorkTime = value;
+                    if (value) deductBreak = true;
+                  });
                   if (!value && selectedShiftId != null) {
                     applyShift(selectedShiftId);
                   }
@@ -891,7 +903,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
                         (item) => DropdownMenuItem<int>(
                           value: item['id'] as int,
                           child: Text(
-                            '${item['name']}  ${item['time_from']} – ${item['time_to']}',
+                            '${item['name']}  ${item['time_from']} – ${item['time_to']} · prestávka ${item['break_minutes'] ?? 0} min',
                           ),
                         ),
                       )
@@ -943,16 +955,19 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
               child: ListTile(
                 leading: const Icon(Icons.schedule),
                 title: Text('Od ${formatTime(from)} do ${formatTime(to)}'),
-                subtitle: const Text('Čas je prevzatý z vybranej zmeny.'),
+                subtitle: Text('Prestávka ${breakCtrl.text} min · ${deductBreak ? 'odpočíta sa z pracovného času' : 'neodpočíta sa z pracovného času'}'),
               ),
             ),
           ],
-          if (type == 'Práca') ...[
+          if (type == 'Práca' && showManualTime) ...[
             const SizedBox(height: 12),
             TextField(
               controller: breakCtrl,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Prestávka v minútach'),
+              decoration: const InputDecoration(
+                labelText: 'Prestávka v minútach',
+                helperText: 'Pri vlastnom čase sa prestávka odpočíta z pracovného času.',
+              ),
             ),
           ],
           const SizedBox(height: 12),
@@ -1587,6 +1602,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   TimeOfDay from = const TimeOfDay(hour: 8, minute: 0);
   TimeOfDay to = const TimeOfDay(hour: 16, minute: 0);
   late final TextEditingController breakCtrl;
+  bool deductBreak = true;
   late final TextEditingController noteCtrl;
   bool busy = false;
   String? error;
@@ -1616,6 +1632,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     from = parseTime(item?['time_from']?.toString(), const TimeOfDay(hour: 8, minute: 0));
     to = parseTime(item?['time_to']?.toString(), const TimeOfDay(hour: 16, minute: 0));
     breakCtrl = TextEditingController(text: '${item?['break_minutes'] ?? 30}');
+    deductBreak = item?['deduct_break'] != false;
     noteCtrl = TextEditingController(text: item?['note']?.toString() ?? '');
   }
 
@@ -1641,6 +1658,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
         'time_from': (type == 'Práca' || type == 'Lekár') ? formatTime(from) : null,
         'time_to': (type == 'Práca' || type == 'Lekár') ? formatTime(to) : null,
         'break_minutes': type == 'Práca' ? int.tryParse(breakCtrl.text) ?? 0 : 0,
+        'deduct_break': type == 'Práca' ? deductBreak : false,
         'note': noteCtrl.text.trim(),
       };
 
@@ -1775,6 +1793,12 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
               controller: breakCtrl,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(labelText: 'Prestávka v minútach'),
+            ),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Odpočítať prestávku z pracovného času'),
+              value: deductBreak,
+              onChanged: (value) => setState(() => deductBreak = value ?? true),
             ),
           ],
           const SizedBox(height: 12),
