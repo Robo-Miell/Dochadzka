@@ -30,6 +30,7 @@
       <button data-tab="dashboard" class="active">Prehľad</button>
       <button data-tab="employees">Zamestnanci</button>
       <button data-tab="locations">Prevádzky</button>
+      <button data-tab="shifts">Zmeny</button>
       <button data-tab="attendance">Dochádzka</button>
       <button data-tab="export">Export</button>
     </div>
@@ -52,6 +53,12 @@
     <div id="locations" class="tab hidden">
       <div class="top"><div><h3>Prevádzky</h3><div class="muted">Názov, mesto a adresu môžeš kedykoľvek upraviť.</div></div><button id="newLocation" class="primary">+ Prevádzka</button></div>
       <div class="table"><table><thead><tr><th>Názov</th><th>Mesto</th><th>Adresa</th><th>Akcie</th></tr></thead><tbody id="locBody"></tbody></table></div>
+    </div>
+
+    <div id="shifts" class="tab hidden">
+      <div class="top"><div><h3>Zmeny</h3><div class="muted">Prednastavené pracovné zmeny pre jednotlivé prevádzky. Zamestnanec ich potom vyberie v aplikácii.</div></div><button id="newShift" class="primary">+ Zmena</button></div>
+      <div class="filters" style="margin-bottom:12px"><label style="margin-top:0">Prevádzka</label><select id="shiftLocFilter"><option value="">Všetky prevádzky</option></select></div>
+      <div class="table"><table><thead><tr><th>Prevádzka</th><th>Názov zmeny</th><th>Od</th><th>Do</th><th>Akcie</th></tr></thead><tbody id="shiftBody"></tbody></table></div>
     </div>
 
     <div id="attendance" class="tab hidden">
@@ -91,6 +98,18 @@
   <p id="locError" class="error"></p><button id="saveLoc" class="primary" style="margin-top:8px">Uložiť</button>
 </div></dialog>
 
+<dialog id="shiftDialog"><div class="modal">
+  <div class="top"><h3 id="shiftTitle">Nová zmena</h3><button data-close="shiftDialog" class="ghost">Zavrieť</button></div>
+  <div class="grid3">
+    <div><label>Prevádzka</label><select id="sloc"></select></div>
+    <div><label>Názov zmeny</label><input id="sname" placeholder="napr. Ranná"></div>
+    <div><label>Od</label><input id="sfrom" type="time"></div>
+    <div><label>Do</label><input id="sto" type="time"></div>
+  </div>
+  <div class="hint">Podporované sú aj nočné zmeny, napr. 22:00 – 06:00.</div>
+  <p id="shiftError" class="error"></p><button id="saveShift" class="primary" style="margin-top:8px">Uložiť</button>
+</div></dialog>
+
 <dialog id="attDialog"><div class="modal">
   <div class="top"><h3 id="attTitle">Nový záznam</h3><button data-close="attDialog" class="ghost">Zavrieť</button></div>
   <div class="grid3">
@@ -108,8 +127,8 @@
 </div></dialog>
 
 <script>
-let token=localStorage.getItem("dochadzka_token")||"", users=[], locations=[], attendance=[];
-let empEditId=null, locEditId=null, attEditId=null;
+let token=localStorage.getItem("dochadzka_token")||"", users=[], locations=[], shifts=[], attendance=[];
+let empEditId=null, locEditId=null, shiftEditId=null, attEditId=null;
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
 const api=async(path,opt={})=>{
@@ -129,18 +148,19 @@ async function login(){
 }
 
 async function refresh(){
-  [users,locations,attendance]=await Promise.all([api("/api/users"),api("/api/locations"),api("/api/attendance")]);
+  [users,locations,shifts,attendance]=await Promise.all([api("/api/users"),api("/api/locations"),api("/api/shifts"),api("/api/attendance")]);
   $("sEmp").textContent=users.length;$("sLoc").textContent=locations.length;$("sPend").textContent=attendance.filter(x=>x.status==="pending").length;$("sAtt").textContent=attendance.length;
-  renderEmployees();renderLocations();fillSelects();renderAttendance();renderPending();
+  renderEmployees();renderLocations();fillSelects();renderShifts();renderAttendance();renderPending();
 }
 
 function fillSelects(){
   const uopts=users.map(x=>`<option value="${x.id}">${esc(x.personal_number)} – ${esc(x.name)}</option>`).join("");
   const lopts=locations.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("");
-  const old={fUser:$("fUser").value,eUser:$("eUser").value,fLoc:$("fLoc").value,eLoc:$("eLoc").value};
+  const old={fUser:$("fUser").value,eUser:$("eUser").value,fLoc:$("fLoc").value,eLoc:$("eLoc").value,shiftLocFilter:$("shiftLocFilter").value};
   ["fUser","eUser"].forEach(id=>$(id).innerHTML='<option value="">Všetci</option>'+uopts);
   ["fLoc","eLoc"].forEach(id=>$(id).innerHTML='<option value="">Všetky</option>'+lopts);
-  $("eloc").innerHTML=lopts;$("auser").innerHTML=uopts;$("aloc").innerHTML=lopts;
+  $("shiftLocFilter").innerHTML='<option value="">Všetky prevádzky</option>'+lopts;
+  $("eloc").innerHTML=lopts;$("sloc").innerHTML=lopts;$("auser").innerHTML=uopts;$("aloc").innerHTML=lopts;
   Object.entries(old).forEach(([id,v])=>{if([...$(id).options].some(o=>o.value===v))$(id).value=v});
 }
 
@@ -155,6 +175,14 @@ function renderLocations(){
   $("locBody").innerHTML=locations.map(x=>`<tr><td><b>${esc(x.name)}</b></td><td>${esc(x.city)}</td><td>${esc(x.address)}</td><td><div class="actions"><button class="ghost editLoc" data-id="${x.id}">Upraviť</button><button class="danger delLoc" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="4" class="empty">Žiadne prevádzky.</td></tr>';
   document.querySelectorAll(".editLoc").forEach(b=>b.onclick=()=>openLocation(Number(b.dataset.id)));
   document.querySelectorAll(".delLoc").forEach(b=>b.onclick=async()=>{const l=locations.find(x=>x.id===Number(b.dataset.id));if(!confirm(`Odstrániť prevádzku ${l?.name||""}?\nPoužitú prevádzku nie je možné odstrániť, kým na ňu odkazujú zamestnanci alebo dochádzka.`))return;try{await api(`/api/locations/${b.dataset.id}`,{method:"DELETE"});await refresh()}catch(e){alert(e.message)}});
+}
+
+function renderShifts(){
+  const lf=$("shiftLocFilter").value;
+  const items=shifts.filter(x=>!lf||String(x.location_id)===lf);
+  $("shiftBody").innerHTML=items.map(x=>`<tr><td>${esc(x.location_name||"")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.time_from)}</td><td>${esc(x.time_to)}</td><td><div class="actions"><button class="ghost editShift" data-id="${x.id}">Upraviť</button><button class="danger delShift" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="5" class="empty">Žiadne prednastavené zmeny.</td></tr>';
+  document.querySelectorAll(".editShift").forEach(b=>b.onclick=()=>openShift(Number(b.dataset.id)));
+  document.querySelectorAll(".delShift").forEach(b=>b.onclick=async()=>{const x=shifts.find(v=>v.id===Number(b.dataset.id));if(!confirm(`Odstrániť zmenu ${x?.name||""}?`))return;try{await api(`/api/shifts/${b.dataset.id}`,{method:"DELETE"});await refresh()}catch(e){alert(e.message)}});
 }
 
 function renderPending(){
@@ -195,6 +223,15 @@ async function saveLocation(){
   $("locError").textContent="";try{const body={name:$("lname").value.trim(),city:$("lcity").value.trim(),address:$("laddr").value.trim()};await api(locEditId?`/api/locations/${locEditId}`:"/api/locations",{method:locEditId?"PATCH":"POST",body:JSON.stringify(body)});$("locDialog").close();await refresh()}catch(e){$("locError").textContent=e.message}
 }
 
+function openShift(id=null){
+  shiftEditId=id;$("shiftError").textContent="";const x=id?shifts.find(v=>v.id===id):null;$("shiftTitle").textContent=x?"Upraviť zmenu":"Nová zmena";$("sname").value=x?.name||"";$("sfrom").value=x?.time_from||"06:00";$("sto").value=x?.time_to||"14:00";
+  if(x?.location_id&&[...$("sloc").options].some(o=>Number(o.value)===x.location_id))$("sloc").value=String(x.location_id);else if(locations.length)$("sloc").value=String(locations[0].id);
+  $("shiftDialog").showModal();
+}
+async function saveShift(){
+  $("shiftError").textContent="";try{const body={location_id:Number($("sloc").value),name:$("sname").value.trim(),time_from:$("sfrom").value,time_to:$("sto").value};await api(shiftEditId?`/api/shifts/${shiftEditId}`:"/api/shifts",{method:shiftEditId?"PATCH":"POST",body:JSON.stringify(body)});$("shiftDialog").close();await refresh()}catch(e){$("shiftError").textContent=e.message}
+}
+
 function updateAttTimeFields(){
   const t=$("atype").value,uses=t==="Práca"||t==="Lekár",usesBreak=t==="Práca";$("afrom").disabled=!uses;$("ato").disabled=!uses;$("abreak").disabled=!usesBreak;if(!uses){$("afrom").value="";$("ato").value=""}if(!usesBreak)$("abreak").value="0";
 }
@@ -216,7 +253,7 @@ async function deleteAttendance(id){const a=attendance.find(x=>x.id===id);if(!co
 $("loginBtn").onclick=login;$("password").onkeydown=e=>{if(e.key==="Enter")login()};$("logout").onclick=()=>{localStorage.removeItem("dochadzka_token");location.reload()};
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.add("hidden"));$(b.dataset.tab).classList.remove("hidden");document.querySelectorAll("[data-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active")});
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).close());
-$("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("saveLoc").onclick=saveLocation;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;
+$("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newShift").onclick=()=>openShift();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("saveLoc").onclick=saveLocation;$("saveShift").onclick=saveShift;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;$("shiftLocFilter").oninput=renderShifts;
 ["fFrom","fTo","fUser","fLoc"].forEach(id=>$(id).oninput=renderAttendance);
 $("download").onclick=async()=>{const q=new URLSearchParams();if($("eFrom").value)q.set("date_from",$("eFrom").value);if($("eTo").value)q.set("date_to",$("eTo").value);if($("eUser").value)q.set("user_id",$("eUser").value);if($("eLoc").value)q.set("location_id",$("eLoc").value);const r=await fetch("/api/export.csv?"+q.toString(),{headers:{Authorization:"Bearer "+token}});if(!r.ok){let m="Export zlyhal";try{m=(await r.json()).detail||m}catch{}return alert(m)}const b=await r.blob(),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download="dochadzka_export.csv";a.click();URL.revokeObjectURL(u)};
 const m=new Date(),first=new Date(m.getFullYear(),m.getMonth(),1),last=new Date(m.getFullYear(),m.getMonth()+1,0);const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;["fFrom","eFrom"].forEach(id=>$(id).value=localDate(first));["fTo","eTo"].forEach(id=>$(id).value=localDate(last));
