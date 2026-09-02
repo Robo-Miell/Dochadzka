@@ -695,6 +695,11 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
   bool busy = false;
   String? error;
 
+  List<dynamic> shifts = [];
+  int? selectedShiftId;
+  bool customWorkTime = true;
+  bool loadingShifts = false;
+
   static const types = [
     'Práca',
     'Dovolenka',
@@ -712,6 +717,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
     if (locationId == null && widget.locations.isNotEmpty) {
       locationId = widget.locations.first['id'] as int;
     }
+    loadShifts();
   }
 
   @override
@@ -719,6 +725,61 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
     breakCtrl.dispose();
     noteCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> loadShifts() async {
+    final loc = locationId;
+    if (loc == null) {
+      if (mounted) {
+        setState(() {
+          shifts = [];
+          selectedShiftId = null;
+          customWorkTime = true;
+        });
+      }
+      return;
+    }
+    if (mounted) setState(() => loadingShifts = true);
+    try {
+      final data = await api.request('/api/shifts?location_id=$loc');
+      final items = List<dynamic>.from(data as List);
+      if (!mounted) return;
+      setState(() {
+        shifts = items;
+        if (items.isEmpty) {
+          selectedShiftId = null;
+          customWorkTime = true;
+        } else {
+          customWorkTime = false;
+          selectedShiftId = items.first['id'] as int;
+          from = parseTime(items.first['time_from']?.toString(), from);
+          to = parseTime(items.first['time_to']?.toString(), to);
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        shifts = [];
+        selectedShiftId = null;
+        customWorkTime = true;
+      });
+    } finally {
+      if (mounted) setState(() => loadingShifts = false);
+    }
+  }
+
+  void applyShift(int? id) {
+    if (id == null) return;
+    final item = shifts.cast<dynamic?>().firstWhere(
+          (x) => x?['id'] == id,
+          orElse: () => null,
+        );
+    if (item == null) return;
+    setState(() {
+      selectedShiftId = id;
+      from = parseTime(item['time_from']?.toString(), from);
+      to = parseTime(item['time_to']?.toString(), to);
+    });
   }
 
   Future<void> save() async {
@@ -751,7 +812,8 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
 
   @override
   Widget build(BuildContext context) {
-    final usesTime = type == 'Práca' || type == 'Lekár';
+    final showManualTime = type == 'Lekár' ||
+        (type == 'Práca' && (customWorkTime || shifts.isEmpty));
     return Scaffold(
       appBar: AppBar(title: const BrandAppTitle('Nový záznam')),
       body: ListView(
@@ -792,9 +854,62 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
                   ),
                 )
                 .toList(),
-            onChanged: (value) => setState(() => locationId = value),
+            onChanged: (value) async {
+              setState(() => locationId = value);
+              await loadShifts();
+            },
           ),
-          if (usesTime) ...[
+          if (type == 'Práca') ...[
+            const SizedBox(height: 12),
+            if (loadingShifts)
+              const LinearProgressIndicator()
+            else if (shifts.isNotEmpty) ...[
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Vlastný časový úsek'),
+                subtitle: Text(
+                  customWorkTime
+                      ? 'Čas zadáš ručne.'
+                      : 'Používa sa prednastavená zmena.',
+                ),
+                value: customWorkTime,
+                onChanged: (value) {
+                  setState(() => customWorkTime = value);
+                  if (!value && selectedShiftId != null) {
+                    applyShift(selectedShiftId);
+                  }
+                },
+              ),
+              if (!customWorkTime) ...[
+                const SizedBox(height: 4),
+                DropdownButtonFormField<int>(
+                  key: ValueKey('shift-$selectedShiftId-${shifts.length}'),
+                  initialValue: selectedShiftId,
+                  decoration: const InputDecoration(labelText: 'Pracovná zmena'),
+                  items: shifts
+                      .map<DropdownMenuItem<int>>(
+                        (item) => DropdownMenuItem<int>(
+                          value: item['id'] as int,
+                          child: Text(
+                            '${item['name']}  ${item['time_from']} – ${item['time_to']}',
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: applyShift,
+                ),
+              ],
+            ] else
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    'Pre túto prevádzku nie sú prednastavené zmeny. Zadaj vlastný čas.',
+                  ),
+                ),
+              ),
+          ],
+          if (showManualTime) ...[
             const SizedBox(height: 12),
             Row(
               children: [
@@ -820,6 +935,16 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
                   ),
                 ),
               ],
+            ),
+          ],
+          if (type == 'Práca' && !showManualTime && selectedShiftId != null) ...[
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.schedule),
+                title: Text('Od ${formatTime(from)} do ${formatTime(to)}'),
+                subtitle: const Text('Čas je prevzatý z vybranej zmeny.'),
+              ),
             ),
           ],
           if (type == 'Práca') ...[
