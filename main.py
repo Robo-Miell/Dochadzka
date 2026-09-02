@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text, create_engine, select
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text, create_engine, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dochadzka.db")
@@ -51,6 +51,8 @@ class Shift(Base):
     name: Mapped[str] = mapped_column(String(120))
     time_from: Mapped[str] = mapped_column(String(5))
     time_to: Mapped[str] = mapped_column(String(5))
+    break_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    deduct_break: Mapped[bool] = mapped_column(Boolean, default=True)
     location: Mapped[Location] = relationship()
 
 
@@ -77,6 +79,7 @@ class Attendance(Base):
     time_from: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
     time_to: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
     break_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    deduct_break: Mapped[bool] = mapped_column(Boolean, default=True)
     note: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="pending")
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
@@ -115,6 +118,8 @@ class ShiftIn(BaseModel):
     name: str
     time_from: str
     time_to: str
+    break_minutes: int = 0
+    deduct_break: bool = True
 
 
 class ShiftUpdate(BaseModel):
@@ -122,6 +127,8 @@ class ShiftUpdate(BaseModel):
     name: Optional[str] = None
     time_from: Optional[str] = None
     time_to: Optional[str] = None
+    break_minutes: Optional[int] = None
+    deduct_break: Optional[bool] = None
 
 
 class UserIn(BaseModel):
@@ -149,6 +156,7 @@ class AttendanceIn(BaseModel):
     time_from: Optional[str] = None
     time_to: Optional[str] = None
     break_minutes: int = 0
+    deduct_break: bool = True
     note: str = ""
     user_id: Optional[int] = None
 
@@ -161,6 +169,7 @@ class AttendanceUpdate(BaseModel):
     time_from: Optional[str] = None
     time_to: Optional[str] = None
     break_minutes: Optional[int] = None
+    deduct_break: Optional[bool] = None
     note: Optional[str] = None
     status: Optional[str] = None
 
@@ -169,7 +178,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.0")
+app = FastAPI(title="Dochádzka API", version="5.2")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -233,7 +242,7 @@ def attendance_hours(a: Attendance) -> float:
         end = th * 60 + tm
         if end < start:
             end += 24 * 60
-        mins = end - start - (a.break_minutes or 0)
+        mins = end - start - ((a.break_minutes or 0) if a.deduct_break else 0)
         return max(0, mins / 60)
     except Exception:
         return 0.0
@@ -253,6 +262,7 @@ def normalize_attendance_fields(
     time_from: Optional[str],
     time_to: Optional[str],
     break_minutes: int,
+    deduct_break: bool,
 ):
     if item_type not in VALID_TYPES:
         raise HTTPException(400, "Neplatný typ záznamu")
@@ -268,8 +278,9 @@ def normalize_attendance_fields(
 
     if item_type != "Práca":
         break_minutes = 0
+        deduct_break = False
 
-    return time_from, time_to, break_minutes
+    return time_from, time_to, break_minutes, bool(deduct_break)
 
 
 def serialize_shift(x: Shift):
@@ -280,6 +291,8 @@ def serialize_shift(x: Shift):
         "name": x.name,
         "time_from": x.time_from,
         "time_to": x.time_to,
+        "break_minutes": x.break_minutes or 0,
+        "deduct_break": bool(x.deduct_break),
     }
 
 
@@ -309,15 +322,37 @@ def serialize_attendance(a: Attendance):
         "time_from": a.time_from,
         "time_to": a.time_to,
         "break_minutes": a.break_minutes,
+        "deduct_break": bool(a.deduct_break),
         "hours": round(attendance_hours(a), 2),
         "note": a.note,
         "status": a.status,
     }
 
 
+def ensure_schema_columns():
+    """Add columns introduced after the first deployment without deleting existing data."""
+    inspector = inspect(engine)
+    migrations = {
+        "shifts": [
+            ("break_minutes", "INTEGER NOT NULL DEFAULT 0"),
+            ("deduct_break", "BOOLEAN NOT NULL DEFAULT TRUE"),
+        ],
+        "attendance": [
+            ("deduct_break", "BOOLEAN NOT NULL DEFAULT TRUE"),
+        ],
+    }
+    with engine.begin() as conn:
+        for table_name, columns in migrations.items():
+            existing = {c["name"] for c in inspector.get_columns(table_name)}
+            for column_name, ddl in columns:
+                if column_name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl}"))
+
+
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(engine)
+    ensure_schema_columns()
     with SessionLocal() as session:
         admin = session.scalar(select(User).where(User.login == ADMIN_LOGIN))
         if not admin:
@@ -336,7 +371,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.0", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "5.2", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -464,12 +499,21 @@ def create_shift(data: ShiftIn, session: Session = Depends(db), _: User = Depend
     time_to = validate_time(data.time_to, "Čas do")
     if time_from is None or time_to is None:
         raise HTTPException(400, "Čas od a čas do sú povinné")
+    if data.break_minutes < 0 or data.break_minutes > 1440:
+        raise HTTPException(400, "Prestávka musí byť medzi 0 a 1440 minútami")
     duplicate = session.scalar(
         select(Shift).where(Shift.location_id == data.location_id, Shift.name == name)
     )
     if duplicate:
         raise HTTPException(400, "Zmena s týmto názvom už v prevádzke existuje")
-    obj = Shift(location_id=data.location_id, name=name, time_from=time_from, time_to=time_to)
+    obj = Shift(
+        location_id=data.location_id,
+        name=name,
+        time_from=time_from,
+        time_to=time_to,
+        break_minutes=data.break_minutes,
+        deduct_break=data.deduct_break,
+    )
     session.add(obj)
     session.commit()
     session.refresh(obj)
@@ -518,6 +562,13 @@ def update_shift(
         if value is None:
             raise HTTPException(400, "Čas do je povinný")
         obj.time_to = value
+    if "break_minutes" in fields:
+        value = 0 if data.break_minutes is None else data.break_minutes
+        if value < 0 or value > 1440:
+            raise HTTPException(400, "Prestávka musí byť medzi 0 a 1440 minútami")
+        obj.break_minutes = value
+    if "deduct_break" in fields:
+        obj.deduct_break = True if data.deduct_break is None else data.deduct_break
     session.commit()
     session.refresh(obj)
     return serialize_shift(obj)
@@ -673,8 +724,8 @@ def create_attendance(
     if not session.get(Location, data.location_id):
         raise HTTPException(400, "Prevádzka neexistuje")
 
-    time_from, time_to, break_minutes = normalize_attendance_fields(
-        data.type, data.time_from, data.time_to, data.break_minutes
+    time_from, time_to, break_minutes, deduct_break = normalize_attendance_fields(
+        data.type, data.time_from, data.time_to, data.break_minutes, data.deduct_break
     )
     obj = Attendance(
         work_date=data.work_date,
@@ -684,6 +735,7 @@ def create_attendance(
         time_from=time_from,
         time_to=time_to,
         break_minutes=break_minutes,
+        deduct_break=deduct_break,
         note=data.note.strip(),
         status="approved" if user.role == "admin" else "pending",
     )
@@ -732,8 +784,9 @@ def update_attendance(
     raw_from = data.time_from if "time_from" in fields else obj.time_from
     raw_to = data.time_to if "time_to" in fields else obj.time_to
     raw_break = data.break_minutes if "break_minutes" in fields and data.break_minutes is not None else obj.break_minutes
-    obj.time_from, obj.time_to, obj.break_minutes = normalize_attendance_fields(
-        obj.type, raw_from, raw_to, raw_break
+    raw_deduct = data.deduct_break if "deduct_break" in fields and data.deduct_break is not None else obj.deduct_break
+    obj.time_from, obj.time_to, obj.break_minutes, obj.deduct_break = normalize_attendance_fields(
+        obj.type, raw_from, raw_to, raw_break, raw_deduct
     )
 
     session.commit()
@@ -800,7 +853,7 @@ def export_csv(
     writer = csv.writer(output, delimiter=";")
     writer.writerow([
         "Dátum", "Osobné číslo", "Zamestnanec", "Prevádzka", "Typ",
-        "Od", "Do", "Prestávka min", "Odpracované hodiny", "Stav", "Poznámka"
+        "Od", "Do", "Prestávka min", "Prestávka odrátaná", "Odpracované hodiny", "Stav", "Poznámka"
     ])
     for a in rows:
         writer.writerow([
@@ -812,6 +865,7 @@ def export_csv(
             a.time_from or "",
             a.time_to or "",
             a.break_minutes or 0,
+            "Áno" if a.deduct_break else "Nie",
             f"{attendance_hours(a):.2f}",
             a.status,
             a.note or "",
