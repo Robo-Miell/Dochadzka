@@ -6,8 +6,8 @@
 <title>MIELL Dochádzka – Admin</title>
 <style>
 :root{--bg:#f4f7f4;--card:#fff;--text:#172033;--muted:#667085;--line:#dfe6df;--accent:#4cba42;--accent-dark:#348c2e;--danger:#b42318;--ok:#067647;--warn:#b54708}
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text)}button,input,select,textarea{font:inherit}.hidden{display:none!important}.wrap{max-width:1380px;margin:auto;padding:24px}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 2px 8px #1720330a}.login{max-width:440px;margin:8vh auto}.brand{display:block;max-width:280px;max-height:130px;object-fit:contain;margin:0 auto 18px}.brand-small{height:46px;max-width:190px;object-fit:contain}h1,h2,h3{margin:0 0 12px}.muted{color:var(--muted);font-size:13px}label{display:block;font-size:13px;font-weight:650;margin:10px 0 5px}input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text)}textarea{min-height:86px;resize:vertical}input[type=checkbox]{width:auto}button{border:0;border-radius:9px;padding:9px 12px;cursor:pointer;font-weight:650}.primary{background:var(--accent);color:#092205}.primary:hover{background:#45ad3c}.ghost{background:#eef2ef;color:#26332b}.danger{background:#fee4e2;color:var(--danger)}.ok{background:#dcfae6;color:var(--ok)}.warn{background:#fff0d8;color:var(--warn)}.top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}.brandrow{display:flex;align-items:center;gap:14px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.tabs button.active{background:var(--accent);color:#092205}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{font-size:28px;font-weight:800}.table{overflow:auto;border:1px solid var(--line);border-radius:12px;background:#fff}table{width:100%;border-collapse:collapse;min-width:980px}th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;font-size:14px;white-space:nowrap;vertical-align:middle}th{background:#f8faf8;color:#667085;font-size:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.section{margin-top:18px}.badge{padding:4px 8px;border-radius:99px;background:#eef2f7;font-size:12px;font-weight:700}.pending{background:#fff4e5;color:#8b4d00}.approved{background:#dcfae6;color:#067647}.rejected{background:#fee4e2;color:#b42318}.actions{display:flex;gap:6px}.actions button{padding:7px 9px}.empty{color:var(--muted);text-align:center;padding:18px}dialog{border:0;border-radius:14px;width:min(720px,95vw);padding:0;box-shadow:0 24px 80px #0004}dialog::backdrop{background:#0006}.modal{padding:18px}.checkline{display:flex;align-items:center;gap:8px;margin-top:14px}.hint{font-size:12px;color:var(--muted);margin-top:5px}.error{color:var(--danger);font-size:13px;margin-top:10px}.nowrap{white-space:nowrap}.filters{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}.month-note{font-size:12px;color:var(--muted);margin-top:6px}
-@media(max-width:850px){.stats,.grid3{grid-template-columns:1fr 1fr}.wrap{padding:12px}.brand-small{height:36px}.brandrow h2{font-size:20px}}@media(max-width:520px){.stats,.grid,.grid3{grid-template-columns:1fr}.top{align-items:flex-start}.brandrow{align-items:flex-start}.brand-small{display:none}.actions{min-width:150px}}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text)}button,input,select,textarea{font:inherit}.hidden{display:none!important}.wrap{max-width:1380px;margin:auto;padding:24px}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 2px 8px #1720330a}.login{max-width:440px;margin:8vh auto}.brand{display:block;max-width:280px;max-height:130px;object-fit:contain;margin:0 auto 18px}.brand-small{height:46px;max-width:190px;object-fit:contain}h1,h2,h3{margin:0 0 12px}.muted{color:var(--muted);font-size:13px}label{display:block;font-size:13px;font-weight:650;margin:10px 0 5px}input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text)}textarea{min-height:86px;resize:vertical}input[type=checkbox]{width:auto}button{border:0;border-radius:9px;padding:9px 12px;cursor:pointer;font-weight:650}.primary{background:var(--accent);color:#092205}.primary:hover{background:#45ad3c}.ghost{background:#eef2ef;color:#26332b}.danger{background:#fee4e2;color:var(--danger)}.ok{background:#dcfae6;color:var(--ok)}.warn{background:#fff0d8;color:var(--warn)}.top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}.brandrow{display:flex;align-items:center;gap:14px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.tabs button.active{background:var(--accent);color:#092205}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{font-size:28px;font-weight:800}.table{overflow:auto;border:1px solid var(--line);border-radius:12px;background:#fff}table{width:100%;border-collapse:collapse;min-width:980px}th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;font-size:14px;white-space:nowrap;vertical-align:middle}th{background:#f8faf8;color:#667085;font-size:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.section{margin-top:18px}.badge{padding:4px 8px;border-radius:99px;background:#eef2f7;font-size:12px;font-weight:700}.pending{background:#fff4e5;color:#8b4d00}.approved{background:#dcfae6;color:#067647}.rejected{background:#fee4e2;color:#b42318}.actions{display:flex;gap:6px}.actions button{padding:7px 9px}.empty{color:var(--muted);text-align:center;padding:18px}dialog{border:0;border-radius:14px;width:min(720px,95vw);padding:0;box-shadow:0 24px 80px #0004}dialog::backdrop{background:#0006}.modal{padding:18px}.checkline{display:flex;align-items:center;gap:8px;margin-top:14px}.hint{font-size:12px;color:var(--muted);margin-top:5px}.error{color:var(--danger);font-size:13px;margin-top:10px}.nowrap{white-space:nowrap}.filters{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}.month-note{font-size:12px;color:var(--muted);margin-top:6px}.shift-editor{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}.shift-editor-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.shift-editor-row{display:grid;grid-template-columns:minmax(150px,1.5fr) minmax(110px,1fr) minmax(110px,1fr) auto;gap:8px;align-items:end;padding:10px 0;border-bottom:1px solid #edf1ed}.shift-editor-row:last-child{border-bottom:0}.shift-editor-row label{margin-top:0}.shift-summary{display:flex;gap:5px;flex-wrap:wrap}.shift-pill{display:inline-block;padding:4px 7px;border-radius:8px;background:#eef7ed;color:#245c21;font-size:12px;font-weight:650}
+@media(max-width:850px){.stats,.grid3{grid-template-columns:1fr 1fr}.wrap{padding:12px}.brand-small{height:36px}.brandrow h2{font-size:20px}}@media(max-width:520px){.stats,.grid,.grid3{grid-template-columns:1fr}.top{align-items:flex-start}.brandrow{align-items:flex-start}.brand-small{display:none}.actions{min-width:150px}.shift-editor-row{grid-template-columns:1fr 1fr}.shift-editor-row .shift-name{grid-column:1/-1}.shift-editor-row .shift-remove{grid-column:1/-1}}
 </style>
 </head>
 <body>
@@ -30,7 +30,6 @@
       <button data-tab="dashboard" class="active">Prehľad</button>
       <button data-tab="employees">Zamestnanci</button>
       <button data-tab="locations">Prevádzky</button>
-      <button data-tab="shifts">Zmeny</button>
       <button data-tab="attendance">Dochádzka</button>
       <button data-tab="export">Export</button>
     </div>
@@ -51,14 +50,8 @@
     </div>
 
     <div id="locations" class="tab hidden">
-      <div class="top"><div><h3>Prevádzky</h3><div class="muted">Názov, mesto a adresu môžeš kedykoľvek upraviť.</div></div><button id="newLocation" class="primary">+ Prevádzka</button></div>
-      <div class="table"><table><thead><tr><th>Názov</th><th>Mesto</th><th>Adresa</th><th>Akcie</th></tr></thead><tbody id="locBody"></tbody></table></div>
-    </div>
-
-    <div id="shifts" class="tab hidden">
-      <div class="top"><div><h3>Zmeny</h3><div class="muted">Prednastavené pracovné zmeny pre jednotlivé prevádzky. Zamestnanec ich potom vyberie v aplikácii.</div></div><button id="newShift" class="primary">+ Zmena</button></div>
-      <div class="filters" style="margin-bottom:12px"><label style="margin-top:0">Prevádzka</label><select id="shiftLocFilter"><option value="">Všetky prevádzky</option></select></div>
-      <div class="table"><table><thead><tr><th>Prevádzka</th><th>Názov zmeny</th><th>Od</th><th>Do</th><th>Akcie</th></tr></thead><tbody id="shiftBody"></tbody></table></div>
+      <div class="top"><div><h3>Prevádzky</h3><div class="muted">Pri každej prevádzke upravíš údaje aj prednastavené pracovné zmeny na jednom mieste.</div></div><button id="newLocation" class="primary">+ Prevádzka</button></div>
+      <div class="table"><table><thead><tr><th>Názov</th><th>Mesto</th><th>Adresa</th><th>Prednastavené zmeny</th><th>Akcie</th></tr></thead><tbody id="locBody"></tbody></table></div>
     </div>
 
     <div id="attendance" class="tab hidden">
@@ -94,20 +87,21 @@
 
 <dialog id="locDialog"><div class="modal">
   <div class="top"><h3 id="locTitle">Nová prevádzka</h3><button data-close="locDialog" class="ghost">Zavrieť</button></div>
-  <label>Názov</label><input id="lname"><label>Mesto</label><input id="lcity"><label>Adresa</label><input id="laddr">
-  <p id="locError" class="error"></p><button id="saveLoc" class="primary" style="margin-top:8px">Uložiť</button>
-</div></dialog>
-
-<dialog id="shiftDialog"><div class="modal">
-  <div class="top"><h3 id="shiftTitle">Nová zmena</h3><button data-close="shiftDialog" class="ghost">Zavrieť</button></div>
-  <div class="grid3">
-    <div><label>Prevádzka</label><select id="sloc"></select></div>
-    <div><label>Názov zmeny</label><input id="sname" placeholder="napr. Ranná"></div>
-    <div><label>Od</label><input id="sfrom" type="time"></div>
-    <div><label>Do</label><input id="sto" type="time"></div>
+  <div class="grid">
+    <div><label>Názov</label><input id="lname"></div>
+    <div><label>Mesto</label><input id="lcity"></div>
   </div>
-  <div class="hint">Podporované sú aj nočné zmeny, napr. 22:00 – 06:00.</div>
-  <p id="shiftError" class="error"></p><button id="saveShift" class="primary" style="margin-top:8px">Uložiť</button>
+  <label>Adresa</label><input id="laddr">
+
+  <div class="shift-editor">
+    <div class="shift-editor-head">
+      <div><h3 style="margin-bottom:3px">Pracovné zmeny</h3><div class="hint">Zmeny sa zobrazia zamestnancom tejto prevádzky v aplikácii. Podporované sú aj nočné zmeny, napr. 22:00 – 06:00.</div></div>
+      <button id="addLocShift" class="ghost" type="button">+ Pridať zmenu</button>
+    </div>
+    <div id="locShiftRows"></div>
+  </div>
+
+  <p id="locError" class="error"></p><button id="saveLoc" class="primary" style="margin-top:12px">Uložiť prevádzku a zmeny</button>
 </div></dialog>
 
 <dialog id="attDialog"><div class="modal">
@@ -128,7 +122,8 @@
 
 <script>
 let token=localStorage.getItem("dochadzka_token")||"", users=[], locations=[], shifts=[], attendance=[];
-let empEditId=null, locEditId=null, shiftEditId=null, attEditId=null;
+let empEditId=null, locEditId=null, attEditId=null;
+let locShiftDraft=[], locShiftDeleted=[];
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
 const api=async(path,opt={})=>{
@@ -150,17 +145,16 @@ async function login(){
 async function refresh(){
   [users,locations,shifts,attendance]=await Promise.all([api("/api/users"),api("/api/locations"),api("/api/shifts"),api("/api/attendance")]);
   $("sEmp").textContent=users.length;$("sLoc").textContent=locations.length;$("sPend").textContent=attendance.filter(x=>x.status==="pending").length;$("sAtt").textContent=attendance.length;
-  renderEmployees();renderLocations();fillSelects();renderShifts();renderAttendance();renderPending();
+  renderEmployees();renderLocations();fillSelects();renderAttendance();renderPending();
 }
 
 function fillSelects(){
   const uopts=users.map(x=>`<option value="${x.id}">${esc(x.personal_number)} – ${esc(x.name)}</option>`).join("");
   const lopts=locations.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("");
-  const old={fUser:$("fUser").value,eUser:$("eUser").value,fLoc:$("fLoc").value,eLoc:$("eLoc").value,shiftLocFilter:$("shiftLocFilter").value};
+  const old={fUser:$("fUser").value,eUser:$("eUser").value,fLoc:$("fLoc").value,eLoc:$("eLoc").value};
   ["fUser","eUser"].forEach(id=>$(id).innerHTML='<option value="">Všetci</option>'+uopts);
   ["fLoc","eLoc"].forEach(id=>$(id).innerHTML='<option value="">Všetky</option>'+lopts);
-  $("shiftLocFilter").innerHTML='<option value="">Všetky prevádzky</option>'+lopts;
-  $("eloc").innerHTML=lopts;$("sloc").innerHTML=lopts;$("auser").innerHTML=uopts;$("aloc").innerHTML=lopts;
+  $("eloc").innerHTML=lopts;$("auser").innerHTML=uopts;$("aloc").innerHTML=lopts;
   Object.entries(old).forEach(([id,v])=>{if([...$(id).options].some(o=>o.value===v))$(id).value=v});
 }
 
@@ -172,17 +166,16 @@ function renderEmployees(){
 }
 
 function renderLocations(){
-  $("locBody").innerHTML=locations.map(x=>`<tr><td><b>${esc(x.name)}</b></td><td>${esc(x.city)}</td><td>${esc(x.address)}</td><td><div class="actions"><button class="ghost editLoc" data-id="${x.id}">Upraviť</button><button class="danger delLoc" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="4" class="empty">Žiadne prevádzky.</td></tr>';
+  $("locBody").innerHTML=locations.map(x=>{
+    const locShifts=shifts.filter(s=>s.location_id===x.id);
+    const shiftHtml=locShifts.length
+      ? `<div class="shift-summary">${locShifts.map(s=>`<span class="shift-pill">${esc(s.name)} ${esc(s.time_from)}–${esc(s.time_to)}</span>`).join("")}</div>`
+      : '<span class="muted">Bez prednastavených zmien</span>';
+    return `<tr><td><b>${esc(x.name)}</b></td><td>${esc(x.city)}</td><td>${esc(x.address)}</td><td>${shiftHtml}</td><td><div class="actions"><button class="ghost editLoc" data-id="${x.id}">Upraviť</button><button class="danger delLoc" data-id="${x.id}">Odstrániť</button></div></td></tr>`;
+  }).join("")||'<tr><td colspan="5" class="empty">Žiadne prevádzky.</td></tr>';
   document.querySelectorAll(".editLoc").forEach(b=>b.onclick=()=>openLocation(Number(b.dataset.id)));
-  document.querySelectorAll(".delLoc").forEach(b=>b.onclick=async()=>{const l=locations.find(x=>x.id===Number(b.dataset.id));if(!confirm(`Odstrániť prevádzku ${l?.name||""}?\nPoužitú prevádzku nie je možné odstrániť, kým na ňu odkazujú zamestnanci alebo dochádzka.`))return;try{await api(`/api/locations/${b.dataset.id}`,{method:"DELETE"});await refresh()}catch(e){alert(e.message)}});
-}
-
-function renderShifts(){
-  const lf=$("shiftLocFilter").value;
-  const items=shifts.filter(x=>!lf||String(x.location_id)===lf);
-  $("shiftBody").innerHTML=items.map(x=>`<tr><td>${esc(x.location_name||"")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.time_from)}</td><td>${esc(x.time_to)}</td><td><div class="actions"><button class="ghost editShift" data-id="${x.id}">Upraviť</button><button class="danger delShift" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="5" class="empty">Žiadne prednastavené zmeny.</td></tr>';
-  document.querySelectorAll(".editShift").forEach(b=>b.onclick=()=>openShift(Number(b.dataset.id)));
-  document.querySelectorAll(".delShift").forEach(b=>b.onclick=async()=>{const x=shifts.find(v=>v.id===Number(b.dataset.id));if(!confirm(`Odstrániť zmenu ${x?.name||""}?`))return;try{await api(`/api/shifts/${b.dataset.id}`,{method:"DELETE"});await refresh()}catch(e){alert(e.message)}});
+  document.querySelectorAll(".delLoc").forEach(b=>b.onclick=async()=>{const l=locations.find(x=>x.id===Number(b.dataset.id));if(!confirm(`Odstrániť prevádzku ${l?.name||""}?
+Použitú prevádzku nie je možné odstrániť, kým na ňu odkazujú zamestnanci, zmeny alebo dochádzka.`))return;try{await api(`/api/locations/${b.dataset.id}`,{method:"DELETE"});await refresh()}catch(e){alert(e.message)}});
 }
 
 function renderPending(){
@@ -216,20 +209,64 @@ async function saveEmployee(){
   }catch(e){$("empError").textContent=e.message}
 }
 
-function openLocation(id=null){
-  locEditId=id;$("locError").textContent="";const l=id?locations.find(x=>x.id===id):null;$("locTitle").textContent=l?"Upraviť prevádzku":"Nová prevádzka";$("lname").value=l?.name||"";$("lcity").value=l?.city||"";$("laddr").value=l?.address||"";$("locDialog").showModal();
-}
-async function saveLocation(){
-  $("locError").textContent="";try{const body={name:$("lname").value.trim(),city:$("lcity").value.trim(),address:$("laddr").value.trim()};await api(locEditId?`/api/locations/${locEditId}`:"/api/locations",{method:locEditId?"PATCH":"POST",body:JSON.stringify(body)});$("locDialog").close();await refresh()}catch(e){$("locError").textContent=e.message}
+function newShiftDraft(){return {id:null,name:"",time_from:"06:00",time_to:"14:00"}}
+
+function renderLocShiftRows(){
+  const box=$("locShiftRows");
+  if(!locShiftDraft.length){box.innerHTML='<div class="empty" style="padding:10px 0;text-align:left">Táto prevádzka nemá prednastavené zmeny. Klikni na „+ Pridať zmenu“.</div>';return}
+  box.innerHTML=locShiftDraft.map((s,i)=>`<div class="shift-editor-row" data-index="${i}">
+    <div class="shift-name"><label>Názov zmeny</label><input class="locShiftName" data-index="${i}" value="${esc(s.name)}" placeholder="napr. Ranná"></div>
+    <div><label>Od</label><input class="locShiftFrom" data-index="${i}" type="time" value="${esc(s.time_from)}"></div>
+    <div><label>Do</label><input class="locShiftTo" data-index="${i}" type="time" value="${esc(s.time_to)}"></div>
+    <div class="shift-remove"><button class="danger removeLocShift" data-index="${i}" type="button">Odstrániť</button></div>
+  </div>`).join("");
+  document.querySelectorAll(".locShiftName").forEach(el=>el.oninput=()=>locShiftDraft[Number(el.dataset.index)].name=el.value);
+  document.querySelectorAll(".locShiftFrom").forEach(el=>el.oninput=()=>locShiftDraft[Number(el.dataset.index)].time_from=el.value);
+  document.querySelectorAll(".locShiftTo").forEach(el=>el.oninput=()=>locShiftDraft[Number(el.dataset.index)].time_to=el.value);
+  document.querySelectorAll(".removeLocShift").forEach(b=>b.onclick=()=>{
+    const i=Number(b.dataset.index), row=locShiftDraft[i];
+    if(row?.id)locShiftDeleted.push(row.id);
+    locShiftDraft.splice(i,1);renderLocShiftRows();
+  });
 }
 
-function openShift(id=null){
-  shiftEditId=id;$("shiftError").textContent="";const x=id?shifts.find(v=>v.id===id):null;$("shiftTitle").textContent=x?"Upraviť zmenu":"Nová zmena";$("sname").value=x?.name||"";$("sfrom").value=x?.time_from||"06:00";$("sto").value=x?.time_to||"14:00";
-  if(x?.location_id&&[...$("sloc").options].some(o=>Number(o.value)===x.location_id))$("sloc").value=String(x.location_id);else if(locations.length)$("sloc").value=String(locations[0].id);
-  $("shiftDialog").showModal();
+function openLocation(id=null){
+  locEditId=id;locShiftDeleted=[];$("locError").textContent="";
+  const l=id?locations.find(x=>x.id===id):null;
+  $("locTitle").textContent=l?"Upraviť prevádzku":"Nová prevádzka";
+  $("lname").value=l?.name||"";$("lcity").value=l?.city||"";$("laddr").value=l?.address||"";
+  locShiftDraft=id
+    ? shifts.filter(x=>x.location_id===id).map(x=>({id:x.id,name:x.name,time_from:x.time_from,time_to:x.time_to}))
+    : [];
+  renderLocShiftRows();$("locDialog").showModal();
 }
-async function saveShift(){
-  $("shiftError").textContent="";try{const body={location_id:Number($("sloc").value),name:$("sname").value.trim(),time_from:$("sfrom").value,time_to:$("sto").value};await api(shiftEditId?`/api/shifts/${shiftEditId}`:"/api/shifts",{method:shiftEditId?"PATCH":"POST",body:JSON.stringify(body)});$("shiftDialog").close();await refresh()}catch(e){$("shiftError").textContent=e.message}
+
+async function saveLocation(){
+  $("locError").textContent="";
+  try{
+    const body={name:$("lname").value.trim(),city:$("lcity").value.trim(),address:$("laddr").value.trim()};
+    if(!body.name)throw new Error("Názov prevádzky je povinný");
+
+    const activeRows=locShiftDraft.filter(s=>s.name.trim()||s.time_from||s.time_to);
+    for(const s of activeRows){
+      if(!s.name.trim()||!s.time_from||!s.time_to)throw new Error("Pri každej zmene vyplň názov, čas od aj čas do");
+    }
+    const names=activeRows.map(s=>s.name.trim().toLocaleLowerCase("sk"));
+    if(new Set(names).size!==names.length)throw new Error("Názvy zmien v jednej prevádzke musia byť jedinečné");
+
+    const saved=await api(locEditId?`/api/locations/${locEditId}`:"/api/locations",{method:locEditId?"PATCH":"POST",body:JSON.stringify(body)});
+    const locationId=saved.id;
+    locEditId=locationId;
+
+    for(const id of [...new Set(locShiftDeleted)])await api(`/api/shifts/${id}`,{method:"DELETE"});
+    for(const s of activeRows){
+      const shiftBody={location_id:locationId,name:s.name.trim(),time_from:s.time_from,time_to:s.time_to};
+      if(s.id)await api(`/api/shifts/${s.id}`,{method:"PATCH",body:JSON.stringify(shiftBody)});
+      else await api("/api/shifts",{method:"POST",body:JSON.stringify(shiftBody)});
+    }
+
+    $("locDialog").close();await refresh();
+  }catch(e){$("locError").textContent=e.message}
 }
 
 function updateAttTimeFields(){
@@ -253,7 +290,7 @@ async function deleteAttendance(id){const a=attendance.find(x=>x.id===id);if(!co
 $("loginBtn").onclick=login;$("password").onkeydown=e=>{if(e.key==="Enter")login()};$("logout").onclick=()=>{localStorage.removeItem("dochadzka_token");location.reload()};
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.add("hidden"));$(b.dataset.tab).classList.remove("hidden");document.querySelectorAll("[data-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active")});
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).close());
-$("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newShift").onclick=()=>openShift();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("saveLoc").onclick=saveLocation;$("saveShift").onclick=saveShift;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;$("shiftLocFilter").oninput=renderShifts;
+$("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("saveLoc").onclick=saveLocation;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;$("addLocShift").onclick=()=>{locShiftDraft.push(newShiftDraft());renderLocShiftRows()};
 ["fFrom","fTo","fUser","fLoc"].forEach(id=>$(id).oninput=renderAttendance);
 $("download").onclick=async()=>{const q=new URLSearchParams();if($("eFrom").value)q.set("date_from",$("eFrom").value);if($("eTo").value)q.set("date_to",$("eTo").value);if($("eUser").value)q.set("user_id",$("eUser").value);if($("eLoc").value)q.set("location_id",$("eLoc").value);const r=await fetch("/api/export.csv?"+q.toString(),{headers:{Authorization:"Bearer "+token}});if(!r.ok){let m="Export zlyhal";try{m=(await r.json()).detail||m}catch{}return alert(m)}const b=await r.blob(),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download="dochadzka_export.csv";a.click();URL.revokeObjectURL(u)};
 const m=new Date(),first=new Date(m.getFullYear(),m.getMonth(),1),last=new Date(m.getFullYear(),m.getMonth()+1,0);const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;["fFrom","eFrom"].forEach(id=>$(id).value=localDate(first));["fTo","eTo"].forEach(id=>$(id).value=localDate(last));
