@@ -6,8 +6,8 @@
 <title>MIELL Dochádzka – Admin</title>
 <style>
 :root{--bg:#f4f7f4;--card:#fff;--text:#172033;--muted:#667085;--line:#dfe6df;--accent:#4cba42;--accent-dark:#348c2e;--danger:#b42318;--ok:#067647;--warn:#b54708}
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text)}button,input,select,textarea{font:inherit}.hidden{display:none!important}.wrap{max-width:1380px;margin:auto;padding:24px}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 2px 8px #1720330a}.login{max-width:440px;margin:8vh auto}.brand{display:block;max-width:280px;max-height:130px;object-fit:contain;margin:0 auto 18px}.brand-small{height:46px;max-width:190px;object-fit:contain}h1,h2,h3{margin:0 0 12px}.muted{color:var(--muted);font-size:13px}label{display:block;font-size:13px;font-weight:650;margin:10px 0 5px}input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text)}textarea{min-height:86px;resize:vertical}input[type=checkbox]{width:auto}button{border:0;border-radius:9px;padding:9px 12px;cursor:pointer;font-weight:650}.primary{background:var(--accent);color:#092205}.primary:hover{background:#45ad3c}.ghost{background:#eef2ef;color:#26332b}.danger{background:#fee4e2;color:var(--danger)}.ok{background:#dcfae6;color:var(--ok)}.warn{background:#fff0d8;color:var(--warn)}.top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}.brandrow{display:flex;align-items:center;gap:14px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.tabs button.active{background:var(--accent);color:#092205}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{font-size:28px;font-weight:800}.table{overflow:auto;border:1px solid var(--line);border-radius:12px;background:#fff}table{width:100%;border-collapse:collapse;min-width:980px}th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;font-size:14px;white-space:nowrap;vertical-align:middle}th{background:#f8faf8;color:#667085;font-size:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.section{margin-top:18px}.badge{padding:4px 8px;border-radius:99px;background:#eef2f7;font-size:12px;font-weight:700}.pending{background:#fff4e5;color:#8b4d00}.approved{background:#dcfae6;color:#067647}.rejected{background:#fee4e2;color:#b42318}.actions{display:flex;gap:6px}.actions button{padding:7px 9px}.empty{color:var(--muted);text-align:center;padding:18px}dialog{border:0;border-radius:14px;width:min(720px,95vw);padding:0;box-shadow:0 24px 80px #0004}dialog::backdrop{background:#0006}.modal{padding:18px}.checkline{display:flex;align-items:center;gap:8px;margin-top:14px}.hint{font-size:12px;color:var(--muted);margin-top:5px}.error{color:var(--danger);font-size:13px;margin-top:10px}.nowrap{white-space:nowrap}.filters{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}.month-note{font-size:12px;color:var(--muted);margin-top:6px}.shift-editor{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}.shift-editor-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.shift-editor-row{display:grid;grid-template-columns:minmax(150px,1.5fr) minmax(110px,1fr) minmax(110px,1fr) auto;gap:8px;align-items:end;padding:10px 0;border-bottom:1px solid #edf1ed}.shift-editor-row:last-child{border-bottom:0}.shift-editor-row label{margin-top:0}.shift-summary{display:flex;gap:5px;flex-wrap:wrap}.shift-pill{display:inline-block;padding:4px 7px;border-radius:8px;background:#eef7ed;color:#245c21;font-size:12px;font-weight:650}
-@media(max-width:850px){.stats,.grid3{grid-template-columns:1fr 1fr}.wrap{padding:12px}.brand-small{height:36px}.brandrow h2{font-size:20px}}@media(max-width:520px){.stats,.grid,.grid3{grid-template-columns:1fr}.top{align-items:flex-start}.brandrow{align-items:flex-start}.brand-small{display:none}.actions{min-width:150px}.shift-editor-row{grid-template-columns:1fr 1fr}.shift-editor-row .shift-name{grid-column:1/-1}.shift-editor-row .shift-remove{grid-column:1/-1}}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text)}button,input,select,textarea{font:inherit}.hidden{display:none!important}.wrap{max-width:1380px;margin:auto;padding:24px}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 2px 8px #1720330a}.login{max-width:440px;margin:8vh auto}.brand{display:block;max-width:280px;max-height:130px;object-fit:contain;margin:0 auto 18px}.brand-small{height:46px;max-width:190px;object-fit:contain}h1,h2,h3{margin:0 0 12px}.muted{color:var(--muted);font-size:13px}label{display:block;font-size:13px;font-weight:650;margin:10px 0 5px}input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text)}textarea{min-height:86px;resize:vertical}input[type=checkbox]{width:auto}button{border:0;border-radius:9px;padding:9px 12px;cursor:pointer;font-weight:650}.primary{background:var(--accent);color:#092205}.primary:hover{background:#45ad3c}.ghost{background:#eef2ef;color:#26332b}.danger{background:#fee4e2;color:var(--danger)}.ok{background:#dcfae6;color:var(--ok)}.warn{background:#fff0d8;color:var(--warn)}.top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}.brandrow{display:flex;align-items:center;gap:14px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.tabs button.active{background:var(--accent);color:#092205}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{font-size:28px;font-weight:800}.table{overflow:auto;border:1px solid var(--line);border-radius:12px;background:#fff}table{width:100%;border-collapse:collapse;min-width:980px}th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;font-size:14px;white-space:nowrap;vertical-align:middle}th{background:#f8faf8;color:#667085;font-size:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.section{margin-top:18px}.badge{padding:4px 8px;border-radius:99px;background:#eef2f7;font-size:12px;font-weight:700}.pending{background:#fff4e5;color:#8b4d00}.approved{background:#dcfae6;color:#067647}.rejected{background:#fee4e2;color:#b42318}.actions{display:flex;gap:6px}.actions button{padding:7px 9px}.empty{color:var(--muted);text-align:center;padding:18px}dialog{border:0;border-radius:14px;width:min(720px,95vw);padding:0;box-shadow:0 24px 80px #0004}dialog::backdrop{background:#0006}.modal{padding:18px}.checkline{display:flex;align-items:center;gap:8px;margin-top:14px}.hint{font-size:12px;color:var(--muted);margin-top:5px}.error{color:var(--danger);font-size:13px;margin-top:10px}.nowrap{white-space:nowrap}.filters{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}.month-note{font-size:12px;color:var(--muted);margin-top:6px}.shift-editor{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}.shift-editor-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.shift-editor-row{display:grid;grid-template-columns:minmax(150px,1.5fr) minmax(100px,.8fr) minmax(100px,.8fr) minmax(105px,.8fr) minmax(190px,1.2fr) auto;gap:8px;align-items:end;padding:10px 0;border-bottom:1px solid #edf1ed}.shift-editor-row:last-child{border-bottom:0}.shift-editor-row label{margin-top:0}.shift-summary{display:flex;gap:5px;flex-wrap:wrap}.shift-pill{display:inline-block;padding:4px 7px;border-radius:8px;background:#eef7ed;color:#245c21;font-size:12px;font-weight:650}
+@media(max-width:850px){.stats,.grid3{grid-template-columns:1fr 1fr}.wrap{padding:12px}.brand-small{height:36px}.brandrow h2{font-size:20px}}@media(max-width:520px){.stats,.grid,.grid3{grid-template-columns:1fr}.top{align-items:flex-start}.brandrow{align-items:flex-start}.brand-small{display:none}.actions{min-width:150px}.shift-editor-row{grid-template-columns:1fr 1fr}.shift-editor-row .shift-name,.shift-editor-row .shift-deduct,.shift-editor-row .shift-remove{grid-column:1/-1}}
 </style>
 </head>
 <body>
@@ -114,6 +114,7 @@
     <div><label>Od</label><input id="afrom" type="time"></div>
     <div><label>Do</label><input id="ato" type="time"></div>
     <div><label>Prestávka (min)</label><input id="abreak" type="number" min="0" max="1440"></div>
+    <div class="checkline"><input id="adeduct" type="checkbox" checked><label for="adeduct" style="margin:0">Odpočítať prestávku z pracovného času</label></div>
     <div><label>Stav</label><select id="astatus"><option value="approved">Schválené</option><option value="pending">Čaká</option><option value="rejected">Zamietnuté</option></select></div>
   </div>
   <label>Poznámka</label><textarea id="anote"></textarea>
@@ -169,7 +170,7 @@ function renderLocations(){
   $("locBody").innerHTML=locations.map(x=>{
     const locShifts=shifts.filter(s=>s.location_id===x.id);
     const shiftHtml=locShifts.length
-      ? `<div class="shift-summary">${locShifts.map(s=>`<span class="shift-pill">${esc(s.name)} ${esc(s.time_from)}–${esc(s.time_to)}</span>`).join("")}</div>`
+      ? `<div class="shift-summary">${locShifts.map(s=>`<span class="shift-pill">${esc(s.name)} ${esc(s.time_from)}–${esc(s.time_to)} · prestávka ${Number(s.break_minutes||0)} min · ${s.deduct_break===false?'platená':'odrátať'}</span>`).join("")}</div>`
       : '<span class="muted">Bez prednastavených zmien</span>';
     return `<tr><td><b>${esc(x.name)}</b></td><td>${esc(x.city)}</td><td>${esc(x.address)}</td><td>${shiftHtml}</td><td><div class="actions"><button class="ghost editLoc" data-id="${x.id}">Upraviť</button><button class="danger delLoc" data-id="${x.id}">Odstrániť</button></div></td></tr>`;
   }).join("")||'<tr><td colspan="5" class="empty">Žiadne prevádzky.</td></tr>';
@@ -190,7 +191,7 @@ async function setStatus(id,s){try{await api(`/api/attendance/${id}/status`,{met
 function renderAttendance(){
   const u=$("fUser").value,l=$("fLoc").value,fr=$("fFrom").value,to=$("fTo").value;
   const a=attendance.filter(x=>(!u||String(x.user_id)===u)&&(!l||String(x.location_id)===l)&&(!fr||x.work_date>=fr)&&(!to||x.work_date<=to));
-  $("attBody").innerHTML=a.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.personal_number)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td>${Number(x.break_minutes||0)} min</td><td>${Number(x.hours||0).toFixed(2)}</td><td>${status(x.status)}</td><td title="${esc(x.note)}">${esc((x.note||"").length>28?(x.note||"").slice(0,28)+"…":x.note||"")}</td><td><div class="actions"><button class="ghost editAtt" data-id="${x.id}">Upraviť</button><button class="danger delAtt" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="11" class="empty">Pre zvolený filter nie sú záznamy.</td></tr>';
+  $("attBody").innerHTML=a.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.personal_number)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td>${Number(x.break_minutes||0)} min ${x.type==="Práca"?(x.deduct_break===false?'<span class="badge">neodrátať</span>':'<span class="badge approved">odrátať</span>'):''}</td><td>${Number(x.hours||0).toFixed(2)}</td><td>${status(x.status)}</td><td title="${esc(x.note)}">${esc((x.note||"").length>28?(x.note||"").slice(0,28)+"…":x.note||"")}</td><td><div class="actions"><button class="ghost editAtt" data-id="${x.id}">Upraviť</button><button class="danger delAtt" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="11" class="empty">Pre zvolený filter nie sú záznamy.</td></tr>';
   document.querySelectorAll(".editAtt").forEach(b=>b.onclick=()=>openAttendance(Number(b.dataset.id)));
   document.querySelectorAll(".delAtt").forEach(b=>b.onclick=()=>deleteAttendance(Number(b.dataset.id)));
 }
@@ -209,7 +210,7 @@ async function saveEmployee(){
   }catch(e){$("empError").textContent=e.message}
 }
 
-function newShiftDraft(){return {id:null,name:"",time_from:"06:00",time_to:"14:00"}}
+function newShiftDraft(){return {id:null,name:"",time_from:"06:00",time_to:"14:00",break_minutes:30,deduct_break:true}}
 
 function renderLocShiftRows(){
   const box=$("locShiftRows");
@@ -218,11 +219,15 @@ function renderLocShiftRows(){
     <div class="shift-name"><label>Názov zmeny</label><input class="locShiftName" data-index="${i}" value="${esc(s.name)}" placeholder="napr. Ranná"></div>
     <div><label>Od</label><input class="locShiftFrom" data-index="${i}" type="time" value="${esc(s.time_from)}"></div>
     <div><label>Do</label><input class="locShiftTo" data-index="${i}" type="time" value="${esc(s.time_to)}"></div>
+    <div><label>Prestávka (min)</label><input class="locShiftBreak" data-index="${i}" type="number" min="0" max="1440" value="${Number(s.break_minutes??0)}"></div>
+    <div class="shift-deduct"><label>Odpočet prestávky</label><div class="checkline" style="margin-top:8px"><input class="locShiftDeduct" data-index="${i}" type="checkbox" ${s.deduct_break===false?'':'checked'}><span>Odpočítať z pracovného času</span></div></div>
     <div class="shift-remove"><button class="danger removeLocShift" data-index="${i}" type="button">Odstrániť</button></div>
   </div>`).join("");
   document.querySelectorAll(".locShiftName").forEach(el=>el.oninput=()=>locShiftDraft[Number(el.dataset.index)].name=el.value);
   document.querySelectorAll(".locShiftFrom").forEach(el=>el.oninput=()=>locShiftDraft[Number(el.dataset.index)].time_from=el.value);
   document.querySelectorAll(".locShiftTo").forEach(el=>el.oninput=()=>locShiftDraft[Number(el.dataset.index)].time_to=el.value);
+  document.querySelectorAll(".locShiftBreak").forEach(el=>el.oninput=()=>locShiftDraft[Number(el.dataset.index)].break_minutes=Number(el.value||0));
+  document.querySelectorAll(".locShiftDeduct").forEach(el=>el.onchange=()=>locShiftDraft[Number(el.dataset.index)].deduct_break=el.checked);
   document.querySelectorAll(".removeLocShift").forEach(b=>b.onclick=()=>{
     const i=Number(b.dataset.index), row=locShiftDraft[i];
     if(row?.id)locShiftDeleted.push(row.id);
@@ -236,7 +241,7 @@ function openLocation(id=null){
   $("locTitle").textContent=l?"Upraviť prevádzku":"Nová prevádzka";
   $("lname").value=l?.name||"";$("lcity").value=l?.city||"";$("laddr").value=l?.address||"";
   locShiftDraft=id
-    ? shifts.filter(x=>x.location_id===id).map(x=>({id:x.id,name:x.name,time_from:x.time_from,time_to:x.time_to}))
+    ? shifts.filter(x=>x.location_id===id).map(x=>({id:x.id,name:x.name,time_from:x.time_from,time_to:x.time_to,break_minutes:Number(x.break_minutes||0),deduct_break:x.deduct_break!==false}))
     : [];
   renderLocShiftRows();$("locDialog").showModal();
 }
@@ -250,6 +255,9 @@ async function saveLocation(){
     const activeRows=locShiftDraft.filter(s=>s.name.trim()||s.time_from||s.time_to);
     for(const s of activeRows){
       if(!s.name.trim()||!s.time_from||!s.time_to)throw new Error("Pri každej zmene vyplň názov, čas od aj čas do");
+      const br=Number(s.break_minutes||0);
+      if(!Number.isFinite(br)||br<0||br>1440)throw new Error("Prestávka musí byť medzi 0 a 1440 minútami");
+      s.break_minutes=br;
     }
     const names=activeRows.map(s=>s.name.trim().toLocaleLowerCase("sk"));
     if(new Set(names).size!==names.length)throw new Error("Názvy zmien v jednej prevádzke musia byť jedinečné");
@@ -260,7 +268,7 @@ async function saveLocation(){
 
     for(const id of [...new Set(locShiftDeleted)])await api(`/api/shifts/${id}`,{method:"DELETE"});
     for(const s of activeRows){
-      const shiftBody={location_id:locationId,name:s.name.trim(),time_from:s.time_from,time_to:s.time_to};
+      const shiftBody={location_id:locationId,name:s.name.trim(),time_from:s.time_from,time_to:s.time_to,break_minutes:Number(s.break_minutes||0),deduct_break:s.deduct_break!==false};
       if(s.id)await api(`/api/shifts/${s.id}`,{method:"PATCH",body:JSON.stringify(shiftBody)});
       else await api("/api/shifts",{method:"POST",body:JSON.stringify(shiftBody)});
     }
@@ -270,18 +278,18 @@ async function saveLocation(){
 }
 
 function updateAttTimeFields(){
-  const t=$("atype").value,uses=t==="Práca"||t==="Lekár",usesBreak=t==="Práca";$("afrom").disabled=!uses;$("ato").disabled=!uses;$("abreak").disabled=!usesBreak;if(!uses){$("afrom").value="";$("ato").value=""}if(!usesBreak)$("abreak").value="0";
+  const t=$("atype").value,uses=t==="Práca"||t==="Lekár",usesBreak=t==="Práca";$("afrom").disabled=!uses;$("ato").disabled=!uses;$("abreak").disabled=!usesBreak;$("adeduct").disabled=!usesBreak;if(!uses){$("afrom").value="";$("ato").value=""}if(!usesBreak){$("abreak").value="0";$("adeduct").checked=false}
 }
 function openAttendance(id=null){
   attEditId=id;$("attError").textContent="";const a=id?attendance.find(x=>x.id===id):null;$("attTitle").textContent=a?"Upraviť dochádzku":"Nový záznam";
-  const today=new Date().toISOString().slice(0,10);$("adate").value=a?.work_date||today;$("atype").value=a?.type||"Práca";$("afrom").value=a?.time_from||"08:00";$("ato").value=a?.time_to||"16:00";$("abreak").value=String(a?.break_minutes??30);$("anote").value=a?.note||"";$("astatus").value=a?.status||"approved";$("astatus").disabled=!a;
+  const today=new Date().toISOString().slice(0,10);$("adate").value=a?.work_date||today;$("atype").value=a?.type||"Práca";$("afrom").value=a?.time_from||"08:00";$("ato").value=a?.time_to||"16:00";$("abreak").value=String(a?.break_minutes??30);$("adeduct").checked=a?.deduct_break!==false;$("anote").value=a?.note||"";$("astatus").value=a?.status||"approved";$("astatus").disabled=!a;
   if(a?.user_id&&[...$("auser").options].some(o=>Number(o.value)===a.user_id))$("auser").value=String(a.user_id);else if(users.length)$("auser").value=String(users[0].id);
   if(a?.location_id&&[...$("aloc").options].some(o=>Number(o.value)===a.location_id))$("aloc").value=String(a.location_id);else if(locations.length)$("aloc").value=String(locations[0].id);
   updateAttTimeFields();$("attDialog").showModal();
 }
 async function saveAttendance(){
   $("attError").textContent="";try{
-    const type=$("atype").value;const body={work_date:$("adate").value,user_id:Number($("auser").value),location_id:Number($("aloc").value),type,time_from:(type==="Práca"||type==="Lekár")?($("afrom").value||null):null,time_to:(type==="Práca"||type==="Lekár")?($("ato").value||null):null,break_minutes:type==="Práca"?Number($("abreak").value||0):0,note:$("anote").value.trim()};if(attEditId)body.status=$("astatus").value;
+    const type=$("atype").value;const body={work_date:$("adate").value,user_id:Number($("auser").value),location_id:Number($("aloc").value),type,time_from:(type==="Práca"||type==="Lekár")?($("afrom").value||null):null,time_to:(type==="Práca"||type==="Lekár")?($("ato").value||null):null,break_minutes:type==="Práca"?Number($("abreak").value||0):0,deduct_break:type==="Práca"?$("adeduct").checked:false,note:$("anote").value.trim()};if(attEditId)body.status=$("astatus").value;
     await api(attEditId?`/api/attendance/${attEditId}`:"/api/attendance",{method:attEditId?"PATCH":"POST",body:JSON.stringify(body)});$("attDialog").close();await refresh();
   }catch(e){$("attError").textContent=e.message}
 }
