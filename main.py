@@ -44,6 +44,16 @@ class Location(Base):
     address: Mapped[str] = mapped_column(String(250), default="")
 
 
+class Shift(Base):
+    __tablename__ = "shifts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    time_from: Mapped[str] = mapped_column(String(5))
+    time_to: Mapped[str] = mapped_column(String(5))
+    location: Mapped[Location] = relationship()
+
+
 class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -100,6 +110,20 @@ class LocationOut(BaseModel):
     address: str
 
 
+class ShiftIn(BaseModel):
+    location_id: int
+    name: str
+    time_from: str
+    time_to: str
+
+
+class ShiftUpdate(BaseModel):
+    location_id: Optional[int] = None
+    name: Optional[str] = None
+    time_from: Optional[str] = None
+    time_to: Optional[str] = None
+
+
 class UserIn(BaseModel):
     personal_number: str
     name: str
@@ -145,7 +169,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="4.0")
+app = FastAPI(title="Dochádzka API", version="5.0")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -205,7 +229,11 @@ def attendance_hours(a: Attendance) -> float:
     try:
         fh, fm = map(int, a.time_from.split(":"))
         th, tm = map(int, a.time_to.split(":"))
-        mins = (th * 60 + tm) - (fh * 60 + fm) - (a.break_minutes or 0)
+        start = fh * 60 + fm
+        end = th * 60 + tm
+        if end < start:
+            end += 24 * 60
+        mins = end - start - (a.break_minutes or 0)
         return max(0, mins / 60)
     except Exception:
         return 0.0
@@ -242,6 +270,17 @@ def normalize_attendance_fields(
         break_minutes = 0
 
     return time_from, time_to, break_minutes
+
+
+def serialize_shift(x: Shift):
+    return {
+        "id": x.id,
+        "location_id": x.location_id,
+        "location_name": x.location.name if x.location else None,
+        "name": x.name,
+        "time_from": x.time_from,
+        "time_to": x.time_to,
+    }
 
 
 def serialize_user(u: User):
@@ -297,7 +336,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "4.0", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "5.0", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -387,10 +426,108 @@ def delete_location(
     obj = session.get(Location, location_id)
     if not obj:
         raise HTTPException(404, "Prevádzka neexistuje")
+    if session.scalar(select(Shift.id).where(Shift.location_id == location_id).limit(1)):
+        raise HTTPException(409, "Prevádzka má prednastavené zmeny. Najprv ich odstráň alebo presuň.")
     if session.scalar(select(User.id).where(User.location_id == location_id).limit(1)):
         raise HTTPException(409, "Prevádzku používa zamestnanec. Najprv ho presuň na inú prevádzku.")
     if session.scalar(select(Attendance.id).where(Attendance.location_id == location_id).limit(1)):
         raise HTTPException(409, "Prevádzka je použitá v dochádzke. Najprv odstráň alebo presuň tieto záznamy.")
+    session.delete(obj)
+    session.commit()
+    return {"ok": True}
+
+
+@app.get("/api/shifts")
+def shifts(
+    location_id: Optional[int] = Query(None),
+    session: Session = Depends(db),
+    user: User = Depends(get_current_user),
+):
+    stmt = select(Shift).order_by(Shift.location_id, Shift.time_from, Shift.name)
+    if location_id:
+        stmt = stmt.where(Shift.location_id == location_id)
+    elif user.role != "admin":
+        if user.location_id is None:
+            return []
+        stmt = stmt.where(Shift.location_id == user.location_id)
+    return [serialize_shift(x) for x in session.scalars(stmt).all()]
+
+
+@app.post("/api/shifts")
+def create_shift(data: ShiftIn, session: Session = Depends(db), _: User = Depends(admin_only)):
+    if not session.get(Location, data.location_id):
+        raise HTTPException(400, "Prevádzka neexistuje")
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(400, "Názov zmeny je povinný")
+    time_from = validate_time(data.time_from, "Čas od")
+    time_to = validate_time(data.time_to, "Čas do")
+    if time_from is None or time_to is None:
+        raise HTTPException(400, "Čas od a čas do sú povinné")
+    duplicate = session.scalar(
+        select(Shift).where(Shift.location_id == data.location_id, Shift.name == name)
+    )
+    if duplicate:
+        raise HTTPException(400, "Zmena s týmto názvom už v prevádzke existuje")
+    obj = Shift(location_id=data.location_id, name=name, time_from=time_from, time_to=time_to)
+    session.add(obj)
+    session.commit()
+    session.refresh(obj)
+    return serialize_shift(obj)
+
+
+@app.patch("/api/shifts/{shift_id}")
+def update_shift(
+    shift_id: int,
+    data: ShiftUpdate,
+    session: Session = Depends(db),
+    _: User = Depends(admin_only),
+):
+    obj = session.get(Shift, shift_id)
+    if not obj:
+        raise HTTPException(404, "Zmena neexistuje")
+    fields = data.model_fields_set
+    target_location_id = obj.location_id
+    if "location_id" in fields:
+        if data.location_id is None or not session.get(Location, data.location_id):
+            raise HTTPException(400, "Prevádzka neexistuje")
+        target_location_id = data.location_id
+    target_name = obj.name
+    if "name" in fields:
+        target_name = (data.name or "").strip()
+        if not target_name:
+            raise HTTPException(400, "Názov zmeny je povinný")
+    duplicate = session.scalar(
+        select(Shift).where(
+            Shift.location_id == target_location_id,
+            Shift.name == target_name,
+            Shift.id != shift_id,
+        )
+    )
+    if duplicate:
+        raise HTTPException(400, "Zmena s týmto názvom už v prevádzke existuje")
+    obj.location_id = target_location_id
+    obj.name = target_name
+    if "time_from" in fields:
+        value = validate_time(data.time_from, "Čas od")
+        if value is None:
+            raise HTTPException(400, "Čas od je povinný")
+        obj.time_from = value
+    if "time_to" in fields:
+        value = validate_time(data.time_to, "Čas do")
+        if value is None:
+            raise HTTPException(400, "Čas do je povinný")
+        obj.time_to = value
+    session.commit()
+    session.refresh(obj)
+    return serialize_shift(obj)
+
+
+@app.delete("/api/shifts/{shift_id}")
+def delete_shift(shift_id: int, session: Session = Depends(db), _: User = Depends(admin_only)):
+    obj = session.get(Shift, shift_id)
+    if not obj:
+        raise HTTPException(404, "Zmena neexistuje")
     session.delete(obj)
     session.commit()
     return {"ok": True}
