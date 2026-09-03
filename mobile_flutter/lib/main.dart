@@ -563,7 +563,7 @@ class _EmployeeHomeState extends State<EmployeeHome> {
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             Text(
-              'Osobné číslo: ${widget.user['personal_number']} • ${widget.user['location_name'] ?? ''}',
+              'Osobné číslo: ${widget.user['personal_number']} • ${(widget.user['location_names'] is List && (widget.user['location_names'] as List).isNotEmpty) ? (widget.user['location_names'] as List).join(', ') : (widget.user['location_name'] ?? '')}',
             ),
             const SizedBox(height: 12),
             MonthSelector(
@@ -1277,7 +1277,7 @@ class _AdminHomeState extends State<AdminHome> {
               leading: CircleAvatar(child: Text((item['name']?.toString() ?? '?').substring(0, 1))),
               title: Text(item['name']?.toString() ?? ''),
               subtitle: Text(
-                '${item['personal_number']} • ${item['login']}\n${item['location_name'] ?? ''} • ${active ? 'Aktívny' : 'Neaktívny'}',
+                '${item['personal_number']} • ${item['login']}\n${(item['location_names'] is List && (item['location_names'] as List).isNotEmpty) ? (item['location_names'] as List).join(', ') : (item['location_name'] ?? '')} • ${active ? 'Aktívny' : 'Neaktívny'}',
               ),
               isThreeLine: true,
               trailing: PopupMenuButton<String>(
@@ -1416,7 +1416,7 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
   late final TextEditingController name;
   late final TextEditingController login;
   final password = TextEditingController();
-  int? locationId;
+  final Set<int> locationIds = <int>{};
   bool active = true;
   bool busy = false;
   String? error;
@@ -1430,11 +1430,15 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
     personalNumber = TextEditingController(text: item?['personal_number']?.toString() ?? '');
     name = TextEditingController(text: item?['name']?.toString() ?? '');
     login = TextEditingController(text: item?['login']?.toString() ?? '');
-    locationId = item?['location_id'] as int?;
-    active = item?['active'] as bool? ?? true;
-    if (locationId == null && widget.locations.isNotEmpty) {
-      locationId = widget.locations.first['id'] as int;
+    final rawLocationIds = item?['location_ids'];
+    if (rawLocationIds is List) {
+      locationIds.addAll(rawLocationIds.whereType<num>().map((x) => x.toInt()));
     }
+    final legacyLocationId = item?['location_id'];
+    if (locationIds.isEmpty && legacyLocationId is num) {
+      locationIds.add(legacyLocationId.toInt());
+    }
+    active = item?['active'] as bool? ?? true;
   }
 
   @override
@@ -1447,7 +1451,10 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
   }
 
   Future<void> save() async {
-    if (locationId == null) return;
+    if (locationIds.isEmpty) {
+      setState(() => error = 'Vyber aspoň jednu prevádzku');
+      return;
+    }
     setState(() {
       busy = true;
       error = null;
@@ -1457,7 +1464,7 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
         'personal_number': personalNumber.text.trim(),
         'name': name.text.trim(),
         'login': login.text.trim(),
-        'location_id': locationId,
+        'location_ids': locationIds.toList()..sort(),
         'active': active,
       };
       if (!editing || password.text.isNotEmpty) body['password'] = password.text;
@@ -1498,18 +1505,44 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
             ),
           ),
           const SizedBox(height: 12),
-          DropdownButtonFormField<int>(
-            initialValue: locationId,
-            decoration: const InputDecoration(labelText: 'Prevádzka'),
-            items: widget.locations
-                .map<DropdownMenuItem<int>>(
-                  (item) => DropdownMenuItem<int>(
-                    value: item['id'] as int,
-                    child: Text(item['name'].toString()),
-                  ),
-                )
-                .toList(),
-            onChanged: (value) => setState(() => locationId = value),
+          const Text(
+            'Prevádzky',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          Card(
+            margin: EdgeInsets.zero,
+            child: Column(
+              children: widget.locations.map<Widget>((item) {
+                final id = (item['id'] as num).toInt();
+                final selected = locationIds.contains(id);
+                return CheckboxListTile(
+                  dense: true,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: Text(item['name'].toString()),
+                  subtitle: (item['city'] ?? '').toString().isEmpty
+                      ? null
+                      : Text(item['city'].toString()),
+                  value: selected,
+                  onChanged: (value) {
+                    setState(() {
+                      if (value == true) {
+                        locationIds.add(id);
+                      } else {
+                        locationIds.remove(id);
+                      }
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text(
+              'Zamestnanec si pri zadávaní dochádzky vyberie jednu z priradených prevádzok.',
+              style: TextStyle(fontSize: 12),
+            ),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
