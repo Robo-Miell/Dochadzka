@@ -41,7 +41,7 @@
         <div class="card"><div class="muted">Čaká na schválenie</div><div id="sPend" class="stat">0</div></div>
         <div class="card"><div class="muted">Záznamy</div><div id="sAtt" class="stat">0</div></div>
       </div>
-      <div class="section"><h3>Na schválenie</h3><div class="table"><table><thead><tr><th>Dátum</th><th>Zamestnanec</th><th>Prevádzka</th><th>Typ</th><th>Čas</th><th>Akcia</th></tr></thead><tbody id="pendingBody"></tbody></table></div></div>
+      <div class="section"><h3>Na schválenie</h3><div class="table"><table><thead><tr><th>Dátum</th><th>Zamestnanec</th><th>Prevádzka</th><th>Typ</th><th>Čas</th><th>KM</th><th>Akcia</th></tr></thead><tbody id="pendingBody"></tbody></table></div></div>
     </div>
 
     <div id="employees" class="tab hidden">
@@ -189,7 +189,7 @@ Použitú prevádzku nie je možné odstrániť, kým na ňu odkazujú zamestnan
 
 function renderPending(){
   const p=attendance.filter(x=>x.status==="pending");
-  $("pendingBody").innerHTML=p.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td><div class="actions"><button class="ok approve" data-id="${x.id}">Schváliť</button><button class="danger reject" data-id="${x.id}">Zamietnuť</button><button class="ghost editPending" data-id="${x.id}">Upraviť</button></div></td></tr>`).join("")||'<tr><td colspan="6" class="empty">Žiadne čakajúce záznamy.</td></tr>';
+  $("pendingBody").innerHTML=p.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td>${x.km?`${Number(x.km)} km`:"—"}</td><td><div class="actions"><button class="ok approve" data-id="${x.id}">Schváliť</button><button class="danger reject" data-id="${x.id}">Zamietnuť</button><button class="ghost editPending" data-id="${x.id}">Upraviť</button></div></td></tr>`).join("")||'<tr><td colspan="7" class="empty">Žiadne čakajúce záznamy.</td></tr>';
   document.querySelectorAll(".approve").forEach(b=>b.onclick=()=>setStatus(b.dataset.id,"approved"));
   document.querySelectorAll(".reject").forEach(b=>b.onclick=()=>setStatus(b.dataset.id,"rejected"));
   document.querySelectorAll(".editPending").forEach(b=>b.onclick=()=>openAttendance(Number(b.dataset.id)));
