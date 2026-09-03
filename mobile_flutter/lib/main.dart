@@ -689,6 +689,7 @@ class AttendanceCard extends StatelessWidget {
     final time = from == null ? '' : '$from${to == null ? '' : ' – $to'}';
     final hours = (item['hours'] as num?)?.toDouble() ?? 0;
     final note = (item['note'] ?? '').toString();
+    final km = (item['km'] as num?)?.toInt() ?? 0;
 
     return Card(
       child: ListTile(
@@ -696,7 +697,7 @@ class AttendanceCard extends StatelessWidget {
         title: Text('${displayIsoDate(item['work_date'].toString())} • ${item['type']}'),
         subtitle: Text(
           '${item['location_name'] ?? ''}\n'
-          '${time.isEmpty ? '' : '$time • '}${hours.toStringAsFixed(2)} h\n'
+          '${time.isEmpty ? '' : '$time • '}${hours.toStringAsFixed(2)} h${km > 0 ? ' • $km km' : ''}\n'
           '${statusText(item['status']?.toString() ?? 'pending')}${note.isEmpty ? '' : ' • $note'}',
         ),
         isThreeLine: true,
@@ -733,6 +734,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
   TimeOfDay to = const TimeOfDay(hour: 16, minute: 0);
   final breakCtrl = TextEditingController(text: '30');
   bool deductBreak = true;
+  final kmCtrl = TextEditingController();
   final noteCtrl = TextEditingController();
   bool busy = false;
   String? error;
@@ -765,8 +767,14 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
   @override
   void dispose() {
     breakCtrl.dispose();
+    kmCtrl.dispose();
     noteCtrl.dispose();
     super.dispose();
+  }
+
+  bool get kmEnabledForLocation {
+    final loc = widget.locations.cast<dynamic?>().firstWhere((x) => x?['id'] == locationId, orElse: () => null);
+    return loc?['km_enabled'] == true;
   }
 
   Future<void> loadShifts() async {
@@ -849,6 +857,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
           'time_to': (type == 'Práca' || type == 'Lekár') ? formatTime(to) : null,
           'break_minutes': type == 'Práca' ? int.tryParse(breakCtrl.text) ?? 0 : 0,
           'deduct_break': type == 'Práca' ? (customWorkTime || shifts.isEmpty ? true : deductBreak) : false,
+          'km': type == 'Práca' && kmEnabledForLocation ? int.tryParse(kmCtrl.text) ?? 0 : 0,
           'note': noteCtrl.text.trim(),
         },
       );
@@ -905,7 +914,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
                 )
                 .toList(),
             onChanged: (value) async {
-              setState(() => locationId = value);
+              setState(() { locationId = value; if (!kmEnabledForLocation) kmCtrl.clear(); });
               await loadShifts();
             },
           ),
@@ -1010,6 +1019,10 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
                 helperText: 'Pri vlastnom čase sa prestávka odpočíta z pracovného času.',
               ),
             ),
+          ],
+          if (type == 'Práca' && kmEnabledForLocation) ...[
+            const SizedBox(height: 12),
+            TextField(controller: kmCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Kilometre (km)', suffixText: 'km')),
           ],
           const SizedBox(height: 12),
           TextField(
@@ -1319,7 +1332,7 @@ class _AdminHomeState extends State<AdminHome> {
               leading: const CircleAvatar(child: Icon(Icons.factory_outlined)),
               title: Text(item['name']?.toString() ?? ''),
               subtitle: Text(
-                [item['city'], item['address']]
+                [item['city'], item['address'], item['km_enabled'] == true ? 'KM povolené' : null]
                     .where((value) => (value ?? '').toString().isNotEmpty)
                     .join(' • '),
               ),
@@ -1577,6 +1590,7 @@ class _AdminLocationPageState extends State<AdminLocationPage> {
   late final TextEditingController name;
   late final TextEditingController city;
   late final TextEditingController address;
+  bool kmEnabled = false;
   bool busy = false;
   String? error;
 
@@ -1588,6 +1602,7 @@ class _AdminLocationPageState extends State<AdminLocationPage> {
     name = TextEditingController(text: widget.location?['name']?.toString() ?? '');
     city = TextEditingController(text: widget.location?['city']?.toString() ?? '');
     address = TextEditingController(text: widget.location?['address']?.toString() ?? '');
+    kmEnabled = widget.location?['km_enabled'] == true;
   }
 
   @override
@@ -1611,6 +1626,7 @@ class _AdminLocationPageState extends State<AdminLocationPage> {
           'name': name.text.trim(),
           'city': city.text.trim(),
           'address': address.text.trim(),
+          'km_enabled': kmEnabled,
         },
       );
       if (mounted) Navigator.pop(context, true);
@@ -1635,6 +1651,8 @@ class _AdminLocationPageState extends State<AdminLocationPage> {
           TextField(controller: city, decoration: const InputDecoration(labelText: 'Mesto')),
           const SizedBox(height: 12),
           TextField(controller: address, decoration: const InputDecoration(labelText: 'Adresa')),
+          const SizedBox(height: 8),
+          CheckboxListTile(contentPadding: EdgeInsets.zero, title: const Text('Povoliť zadávanie kilometrov'), subtitle: const Text('Zamestnanec pri tejto prevádzke uvidí pole KM.'), value: kmEnabled, onChanged: (value) => setState(() => kmEnabled = value ?? false)),
           if (error != null) ...[
             const SizedBox(height: 12),
             Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
@@ -1677,6 +1695,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   TimeOfDay to = const TimeOfDay(hour: 16, minute: 0);
   late final TextEditingController breakCtrl;
   bool deductBreak = true;
+  late final TextEditingController kmCtrl;
   late final TextEditingController noteCtrl;
   bool busy = false;
   String? error;
@@ -1707,14 +1726,21 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     to = parseTime(item?['time_to']?.toString(), const TimeOfDay(hour: 16, minute: 0));
     breakCtrl = TextEditingController(text: '${item?['break_minutes'] ?? 30}');
     deductBreak = item?['deduct_break'] != false;
+    kmCtrl = TextEditingController(text: '${item?['km'] ?? 0}');
     noteCtrl = TextEditingController(text: item?['note']?.toString() ?? '');
   }
 
   @override
   void dispose() {
     breakCtrl.dispose();
+    kmCtrl.dispose();
     noteCtrl.dispose();
     super.dispose();
+  }
+
+  bool get kmEnabledForLocation {
+    final loc = widget.locations.cast<dynamic?>().firstWhere((x) => x?['id'] == locationId, orElse: () => null);
+    return loc?['km_enabled'] == true;
   }
 
   Future<void> save() async {
@@ -1733,6 +1759,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
         'time_to': (type == 'Práca' || type == 'Lekár') ? formatTime(to) : null,
         'break_minutes': type == 'Práca' ? int.tryParse(breakCtrl.text) ?? 0 : 0,
         'deduct_break': type == 'Práca' ? deductBreak : false,
+        'km': type == 'Práca' && kmEnabledForLocation ? int.tryParse(kmCtrl.text) ?? 0 : 0,
         'note': noteCtrl.text.trim(),
       };
 
@@ -1813,7 +1840,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
                   ),
                 )
                 .toList(),
-            onChanged: (value) => setState(() => locationId = value),
+            onChanged: (value) => setState(() { locationId = value; if (!kmEnabledForLocation) kmCtrl.text = '0'; }),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
@@ -1874,6 +1901,10 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
               value: deductBreak,
               onChanged: (value) => setState(() => deductBreak = value ?? true),
             ),
+            if (kmEnabledForLocation) ...[
+              const SizedBox(height: 12),
+              TextField(controller: kmCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Kilometre (km)', suffixText: 'km')),
+            ],
           ],
           const SizedBox(height: 12),
           TextField(
