@@ -12,8 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text, create_engine, inspect, select, text
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String, Table as SqlTable, Text, create_engine, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 from reportlab.lib import colors
@@ -55,6 +55,14 @@ class Location(Base):
     address: Mapped[str] = mapped_column(String(250), default="")
 
 
+user_locations = SqlTable(
+    "user_locations",
+    Base.metadata,
+    Column("user_id", ForeignKey("users.id"), primary_key=True),
+    Column("location_id", ForeignKey("locations.id"), primary_key=True),
+)
+
+
 class Shift(Base):
     __tablename__ = "shifts"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -76,8 +84,10 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), default="employee")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Legacy/default location kept for backwards compatibility and as the initial selection in the app.
     location_id: Mapped[Optional[int]] = mapped_column(ForeignKey("locations.id"), nullable=True)
-    location: Mapped[Optional[Location]] = relationship()
+    location: Mapped[Optional[Location]] = relationship(foreign_keys=[location_id])
+    locations: Mapped[list[Location]] = relationship(secondary=user_locations, lazy="selectin")
 
 
 class Attendance(Base):
@@ -147,7 +157,9 @@ class UserIn(BaseModel):
     name: str
     login: str
     password: str
-    location_id: int
+    # New clients use location_ids; location_id remains accepted for backwards compatibility.
+    location_ids: list[int] = Field(default_factory=list)
+    location_id: Optional[int] = None
     active: bool = True
 
 
@@ -156,6 +168,7 @@ class UserUpdate(BaseModel):
     name: Optional[str] = None
     login: Optional[str] = None
     password: Optional[str] = None
+    location_ids: Optional[list[int]] = None
     location_id: Optional[int] = None
     active: Optional[bool] = None
 
@@ -189,7 +202,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.3")
+app = FastAPI(title="Dochádzka API", version="5.4")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -294,6 +307,31 @@ def normalize_attendance_fields(
     return time_from, time_to, break_minutes, bool(deduct_break)
 
 
+def assigned_location_ids(user: User) -> list[int]:
+    ids = [loc.id for loc in (user.locations or [])]
+    if not ids and user.location_id is not None:
+        ids = [user.location_id]
+    return list(dict.fromkeys(ids))
+
+
+def validate_user_locations(session: Session, ids: list[int]) -> list[Location]:
+    clean_ids = []
+    for raw in ids:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0 and value not in clean_ids:
+            clean_ids.append(value)
+    if not clean_ids:
+        raise HTTPException(400, "Vyber aspoň jednu prevádzku")
+    locs = session.scalars(select(Location).where(Location.id.in_(clean_ids))).all()
+    by_id = {loc.id: loc for loc in locs}
+    if len(by_id) != len(clean_ids):
+        raise HTTPException(400, "Jedna alebo viac prevádzok neexistuje")
+    return [by_id[x] for x in clean_ids]
+
+
 def serialize_shift(x: Shift):
     return {
         "id": x.id,
@@ -308,6 +346,9 @@ def serialize_shift(x: Shift):
 
 
 def serialize_user(u: User):
+    assigned = sorted((u.locations or []), key=lambda x: x.name.lower())
+    if not assigned and u.location is not None:
+        assigned = [u.location]
     return {
         "id": u.id,
         "personal_number": u.personal_number,
@@ -316,7 +357,9 @@ def serialize_user(u: User):
         "role": u.role,
         "active": u.active,
         "location_id": u.location_id,
-        "location_name": u.location.name if u.location else None,
+        "location_name": u.location.name if u.location else (assigned[0].name if assigned else None),
+        "location_ids": [x.id for x in assigned],
+        "location_names": [x.name for x in assigned],
     }
 
 
@@ -379,10 +422,22 @@ def startup():
             session.add(admin)
             session.commit()
 
+        # Migrate existing single-location employee assignments into the new mapping table.
+        employees = session.scalars(select(User).where(User.role == "employee")).all()
+        changed = False
+        for employee in employees:
+            if employee.location_id is not None and not any(loc.id == employee.location_id for loc in (employee.locations or [])):
+                loc = session.get(Location, employee.location_id)
+                if loc is not None:
+                    employee.locations.append(loc)
+                    changed = True
+        if changed:
+            session.commit()
+
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.3", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "5.4", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -413,10 +468,13 @@ def me(user: User = Depends(get_current_user)):
 
 @app.get("/api/locations")
 def locations(session: Session = Depends(db), user: User = Depends(get_current_user)):
-    return [
-        LocationOut.model_validate(x).model_dump()
-        for x in session.scalars(select(Location).order_by(Location.name)).all()
-    ]
+    stmt = select(Location).order_by(Location.name)
+    if user.role != "admin":
+        ids = assigned_location_ids(user)
+        if not ids:
+            return []
+        stmt = stmt.where(Location.id.in_(ids))
+    return [LocationOut.model_validate(x).model_dump() for x in session.scalars(stmt).all()]
 
 
 @app.post("/api/locations")
@@ -475,7 +533,9 @@ def delete_location(
     if session.scalar(select(Shift.id).where(Shift.location_id == location_id).limit(1)):
         raise HTTPException(409, "Prevádzka má prednastavené zmeny. Najprv ich odstráň alebo presuň.")
     if session.scalar(select(User.id).where(User.location_id == location_id).limit(1)):
-        raise HTTPException(409, "Prevádzku používa zamestnanec. Najprv ho presuň na inú prevádzku.")
+        raise HTTPException(409, "Prevádzku používa zamestnanec. Najprv zmeň jeho prevádzky.")
+    if session.execute(select(user_locations.c.user_id).where(user_locations.c.location_id == location_id).limit(1)).first():
+        raise HTTPException(409, "Prevádzku používa zamestnanec. Najprv zmeň jeho prevádzky.")
     if session.scalar(select(Attendance.id).where(Attendance.location_id == location_id).limit(1)):
         raise HTTPException(409, "Prevádzka je použitá v dochádzke. Najprv odstráň alebo presuň tieto záznamy.")
     session.delete(obj)
@@ -490,12 +550,18 @@ def shifts(
     user: User = Depends(get_current_user),
 ):
     stmt = select(Shift).order_by(Shift.location_id, Shift.time_from, Shift.name)
-    if location_id:
-        stmt = stmt.where(Shift.location_id == location_id)
-    elif user.role != "admin":
-        if user.location_id is None:
+    if user.role != "admin":
+        ids = assigned_location_ids(user)
+        if not ids:
             return []
-        stmt = stmt.where(Shift.location_id == user.location_id)
+        if location_id:
+            if location_id not in ids:
+                raise HTTPException(403, "Táto prevádzka ti nie je priradená")
+            stmt = stmt.where(Shift.location_id == location_id)
+        else:
+            stmt = stmt.where(Shift.location_id.in_(ids))
+    elif location_id:
+        stmt = stmt.where(Shift.location_id == location_id)
     return [serialize_shift(x) for x in session.scalars(stmt).all()]
 
 
@@ -612,8 +678,8 @@ def create_user(data: UserIn, session: Session = Depends(db), _: User = Depends(
         raise HTTPException(400, "Login už existuje")
     if session.scalar(select(User).where(User.personal_number == personal_number)):
         raise HTTPException(400, "Osobné číslo už existuje")
-    if not session.get(Location, data.location_id):
-        raise HTTPException(400, "Prevádzka neexistuje")
+    requested_ids = data.location_ids or ([data.location_id] if data.location_id is not None else [])
+    locs = validate_user_locations(session, requested_ids)
     obj = User(
         personal_number=personal_number,
         name=name,
@@ -621,8 +687,9 @@ def create_user(data: UserIn, session: Session = Depends(db), _: User = Depends(
         password_hash=pwd.hash(data.password),
         role="employee",
         active=data.active,
-        location_id=data.location_id,
+        location_id=locs[0].id,
     )
+    obj.locations = locs
     session.add(obj)
     session.commit()
     session.refresh(obj)
@@ -662,10 +729,16 @@ def update_user(
         if duplicate:
             raise HTTPException(400, "Login už existuje")
         obj.login = value
-    if "location_id" in fields:
-        if data.location_id is None or not session.get(Location, data.location_id):
-            raise HTTPException(400, "Prevádzka neexistuje")
-        obj.location_id = data.location_id
+    if "location_ids" in fields or "location_id" in fields:
+        requested_ids = (data.location_ids or []) if "location_ids" in fields else []
+        if not requested_ids and "location_id" in fields and data.location_id is not None:
+            requested_ids = [data.location_id]
+        locs = validate_user_locations(session, requested_ids)
+        obj.locations = locs
+        if data.location_id is not None and any(x.id == data.location_id for x in locs):
+            obj.location_id = data.location_id
+        elif obj.location_id not in [x.id for x in locs]:
+            obj.location_id = locs[0].id
     if "active" in fields and data.active is not None:
         obj.active = data.active
     if "password" in fields and data.password:
@@ -734,6 +807,8 @@ def create_attendance(
         raise HTTPException(400, "Zamestnanec neexistuje")
     if not session.get(Location, data.location_id):
         raise HTTPException(400, "Prevádzka neexistuje")
+    if user.role != "admin" and data.location_id not in assigned_location_ids(user):
+        raise HTTPException(403, "Táto prevádzka ti nie je priradená")
 
     time_from, time_to, break_minutes, deduct_break = normalize_attendance_fields(
         data.type, data.time_from, data.time_to, data.break_minutes, data.deduct_break
@@ -1024,7 +1099,7 @@ def build_employee_pdf(user: User, rows, date_from: date, date_to: date):
     info = [
         [Paragraph("Zamestnanec", strong), Paragraph(user.name, body)],
         [Paragraph("Osobné číslo", strong), Paragraph(user.personal_number, body)],
-        [Paragraph("Prevádzka", strong), Paragraph(user.location.name if user.location else "-", body)],
+        [Paragraph("Priradené prevádzky", strong), Paragraph(", ".join(x.name for x in sorted((user.locations or []), key=lambda x: x.name.lower())) or (user.location.name if user.location else "-"), body)],
         [Paragraph("Obdobie", strong), Paragraph(export_period_text(date_from, date_to), body)],
     ]
     info_table = Table(info, colWidths=[38 * mm, 137 * mm])
