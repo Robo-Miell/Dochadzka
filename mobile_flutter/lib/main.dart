@@ -738,6 +738,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
   final noteCtrl = TextEditingController();
   bool busy = false;
   String? error;
+  bool billingConfirmed = false;
 
   List<dynamic> shifts = [];
   int? selectedShiftId;
@@ -841,6 +842,12 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
 
   Future<void> save() async {
     if (locationId == null) return;
+    if (!billingConfirmed) {
+      setState(() {
+        error = 'Pred odoslaním musíš potvrdiť správnosť zadaných údajov.';
+      });
+      return;
+    }
     setState(() {
       busy = true;
       error = null;
@@ -858,6 +865,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
           'break_minutes': type == 'Práca' ? int.tryParse(breakCtrl.text) ?? 0 : 0,
           'deduct_break': type == 'Práca' ? (customWorkTime || shifts.isEmpty ? true : deductBreak) : false,
           'km': type == 'Práca' && kmEnabledForLocation ? int.tryParse(kmCtrl.text) ?? 0 : 0,
+          'billing_confirmed': billingConfirmed,
           'note': noteCtrl.text.trim(),
         },
       );
@@ -1030,13 +1038,28 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
             maxLines: 2,
             decoration: const InputDecoration(labelText: 'Poznámka'),
           ),
+          const SizedBox(height: 14),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            value: billingConfirmed,
+            onChanged: busy
+                ? null
+                : (value) => setState(() {
+                      billingConfirmed = value ?? false;
+                      if (billingConfirmed) error = null;
+                    }),
+            title: const Text(
+              'Potvrdzujem správnosť zadaných údajov a beriem na vedomie ich použitie ako podklad pre fakturáciu.',
+            ),
+          ),
           if (error != null) ...[
             const SizedBox(height: 12),
             Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ],
           const SizedBox(height: 18),
           FilledButton(
-            onPressed: busy ? null : save,
+            onPressed: busy || !billingConfirmed ? null : save,
             child: busy
                 ? const SizedBox(
                     width: 22,
