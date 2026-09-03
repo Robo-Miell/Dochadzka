@@ -2,6 +2,8 @@ import csv
 import io
 import os
 import re
+import reportlab
+import xlwt
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -13,6 +15,15 @@ from passlib.context import CryptContext
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text, create_engine, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
+
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import Image as PdfImage, LongTable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dochadzka.db")
 JWT_SECRET = os.getenv("JWT_SECRET", "change-this-secret")
@@ -178,7 +189,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.2")
+app = FastAPI(title="Dochádzka API", version="5.3")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -371,7 +382,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.2", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "5.3", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -828,6 +839,423 @@ def delete_attendance(
     return {"ok": True}
 
 
+
+STATUS_SK = {
+    "approved": "Schválené",
+    "pending": "Čaká na schválenie",
+    "rejected": "Zamietnuté",
+}
+
+
+def filtered_attendance_rows(
+    session: Session,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    user_id: Optional[int] = None,
+    location_id: Optional[int] = None,
+):
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(400, "Dátum Od nemôže byť neskôr ako Dátum Do")
+    stmt = select(Attendance).order_by(Attendance.work_date, Attendance.user_id, Attendance.id)
+    if date_from:
+        stmt = stmt.where(Attendance.work_date >= date_from)
+    if date_to:
+        stmt = stmt.where(Attendance.work_date <= date_to)
+    if user_id:
+        stmt = stmt.where(Attendance.user_id == user_id)
+    if location_id:
+        stmt = stmt.where(Attendance.location_id == location_id)
+    return session.scalars(stmt).all()
+
+
+def export_period_text(date_from: Optional[date], date_to: Optional[date]) -> str:
+    def f(d: Optional[date]) -> str:
+        return d.strftime("%d.%m.%Y") if d else "bez obmedzenia"
+    return f"{f(date_from)} - {f(date_to)}"
+
+
+def ensure_pdf_fonts():
+    if "Vera" in pdfmetrics.getRegisteredFontNames():
+        return
+    fonts_dir = os.path.join(os.path.dirname(reportlab.__file__), "fonts")
+    pdfmetrics.registerFont(TTFont("Vera", os.path.join(fonts_dir, "Vera.ttf")))
+    pdfmetrics.registerFont(TTFont("VeraBd", os.path.join(fonts_dir, "VeraBd.ttf")))
+
+
+def pdf_logo(max_height=13 * mm):
+    logo_path = os.path.join(static_dir, "brand.png")
+    if not os.path.exists(logo_path):
+        return None
+    img = PdfImage(logo_path)
+    ratio = img.imageWidth / max(1, img.imageHeight)
+    img.drawHeight = max_height
+    img.drawWidth = max_height * ratio
+    return img
+
+
+def pdf_footer(canvas, doc):
+    ensure_pdf_fonts()
+    canvas.saveState()
+    canvas.setStrokeColor(colors.HexColor("#D9E3D8"))
+    canvas.line(doc.leftMargin, 8 * mm, doc.pagesize[0] - doc.rightMargin, 8 * mm)
+    canvas.setFont("Vera", 7)
+    canvas.setFillColor(colors.HexColor("#667085"))
+    canvas.drawString(doc.leftMargin, 4.5 * mm, "MIELL Dochádzka")
+    canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, 4.5 * mm, f"Strana {doc.page}")
+    canvas.restoreState()
+
+
+def pdf_paragraph(value, style):
+    text_value = str(value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return Paragraph(text_value, style)
+
+
+def build_admin_pdf(
+    rows,
+    date_from: Optional[date],
+    date_to: Optional[date],
+    user_label: str,
+    location_label: str,
+):
+    ensure_pdf_fonts()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=landscape(A4),
+        leftMargin=8 * mm,
+        rightMargin=8 * mm,
+        topMargin=8 * mm,
+        bottomMargin=13 * mm,
+        title="Export dochádzky",
+        author="MIELL Quality",
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("TitleVera", parent=styles["Title"], fontName="VeraBd", fontSize=16, leading=19, textColor=colors.HexColor("#172033"), alignment=TA_LEFT)
+    small = ParagraphStyle("SmallVera", parent=styles["BodyText"], fontName="Vera", fontSize=6.4, leading=8, textColor=colors.HexColor("#172033"))
+    small_center = ParagraphStyle("SmallCenter", parent=small, alignment=TA_CENTER)
+    meta = ParagraphStyle("MetaVera", parent=styles["BodyText"], fontName="Vera", fontSize=8, leading=10, textColor=colors.HexColor("#667085"))
+    summary = ParagraphStyle("SummaryVera", parent=styles["BodyText"], fontName="VeraBd", fontSize=9, leading=11, textColor=colors.HexColor("#172033"))
+
+    story = []
+    logo = pdf_logo()
+    if logo:
+        header = Table([[logo, Paragraph("Export dochádzky", title_style)]], colWidths=[60 * mm, 210 * mm])
+        header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+        story.append(header)
+    else:
+        story.append(Paragraph("Export dochádzky", title_style))
+    story.append(Spacer(1, 3 * mm))
+    story.append(Paragraph(
+        f"Obdobie: <b>{export_period_text(date_from, date_to)}</b> &nbsp;&nbsp; Zamestnanec: <b>{user_label}</b> &nbsp;&nbsp; Prevádzka: <b>{location_label}</b>",
+        meta,
+    ))
+    story.append(Spacer(1, 3 * mm))
+
+    headers = ["Dátum", "Os. číslo", "Zamestnanec", "Prevádzka", "Typ", "Od", "Do", "Prestávka", "Odr.", "Hodiny", "Stav", "Poznámka"]
+    data = [[pdf_paragraph(h, small_center) for h in headers]]
+    for a in rows:
+        data.append([
+            pdf_paragraph(a.work_date.strftime("%d.%m.%Y"), small_center),
+            pdf_paragraph(a.user.personal_number, small),
+            pdf_paragraph(a.user.name, small),
+            pdf_paragraph(a.location.name, small),
+            pdf_paragraph(a.type, small),
+            pdf_paragraph(a.time_from or "", small_center),
+            pdf_paragraph(a.time_to or "", small_center),
+            pdf_paragraph(f"{a.break_minutes or 0} min", small_center),
+            pdf_paragraph("Áno" if a.deduct_break else "Nie", small_center),
+            pdf_paragraph(f"{attendance_hours(a):.2f}", small_center),
+            pdf_paragraph(STATUS_SK.get(a.status, a.status), small),
+            pdf_paragraph(a.note or "", small),
+        ])
+    col_widths = [18, 20, 32, 29, 22, 13, 13, 18, 13, 16, 27, 48]
+    table = LongTable(data, colWidths=[x * mm for x in col_widths], repeatRows=1, hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#348C2E")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "VeraBd"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D9E3D8")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7FAF7")]),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2.3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2.3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 4 * mm))
+    approved_hours = sum(attendance_hours(a) for a in rows if a.status == "approved")
+    all_hours = sum(attendance_hours(a) for a in rows)
+    story.append(Paragraph(f"Počet záznamov: {len(rows)} &nbsp;&nbsp; | &nbsp;&nbsp; Schválené pracovné hodiny: {approved_hours:.2f} h &nbsp;&nbsp; | &nbsp;&nbsp; Evidované pracovné hodiny spolu: {all_hours:.2f} h", summary))
+    doc.build(story, onFirstPage=pdf_footer, onLaterPages=pdf_footer)
+    return buf.getvalue()
+
+
+def build_employee_pdf(user: User, rows, date_from: date, date_to: date):
+    ensure_pdf_fonts()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=12 * mm,
+        rightMargin=12 * mm,
+        topMargin=10 * mm,
+        bottomMargin=14 * mm,
+        title=f"Dochádzka - {user.name}",
+        author="MIELL Quality",
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("EmpTitle", parent=styles["Title"], fontName="VeraBd", fontSize=16, leading=19, textColor=colors.HexColor("#172033"), alignment=TA_LEFT)
+    body = ParagraphStyle("EmpBody", parent=styles["BodyText"], fontName="Vera", fontSize=8.2, leading=10.5, textColor=colors.HexColor("#172033"))
+    small = ParagraphStyle("EmpSmall", parent=body, fontSize=7.2, leading=9)
+    small_center = ParagraphStyle("EmpSmallCenter", parent=small, alignment=TA_CENTER)
+    strong = ParagraphStyle("EmpStrong", parent=body, fontName="VeraBd", fontSize=9.2, leading=11)
+
+    story = []
+    logo = pdf_logo(15 * mm)
+    if logo:
+        header = Table([[logo, Paragraph("Mesačná dochádzka", title_style)]], colWidths=[60 * mm, 115 * mm])
+        header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+        story.append(header)
+    else:
+        story.append(Paragraph("Mesačná dochádzka", title_style))
+    story.append(Spacer(1, 4 * mm))
+
+    info = [
+        [Paragraph("Zamestnanec", strong), Paragraph(user.name, body)],
+        [Paragraph("Osobné číslo", strong), Paragraph(user.personal_number, body)],
+        [Paragraph("Prevádzka", strong), Paragraph(user.location.name if user.location else "-", body)],
+        [Paragraph("Obdobie", strong), Paragraph(export_period_text(date_from, date_to), body)],
+    ]
+    info_table = Table(info, colWidths=[38 * mm, 137 * mm])
+    info_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F0F7EF")),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D9E3D8")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(info_table)
+    story.append(Spacer(1, 5 * mm))
+
+    approved_hours = sum(attendance_hours(a) for a in rows if a.status == "approved")
+    pending_count = sum(1 for a in rows if a.status == "pending")
+    summary_table = Table([
+        [Paragraph("Schválené hodiny", small), Paragraph("Čakajúce záznamy", small), Paragraph("Záznamy spolu", small)],
+        [Paragraph(f"{approved_hours:.2f} h", strong), Paragraph(str(pending_count), strong), Paragraph(str(len(rows)), strong)],
+    ], colWidths=[58 * mm, 58 * mm, 58 * mm])
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F7FAF7")),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D9E3D8")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 5 * mm))
+
+    headers = ["Dátum", "Typ", "Čas", "Prestávka", "Hodiny", "Stav", "Poznámka"]
+    data = [[pdf_paragraph(h, small_center) for h in headers]]
+    for a in rows:
+        time_text = f"{a.time_from or '-'} - {a.time_to or '-'}" if a.time_from or a.time_to else "-"
+        br = f"{a.break_minutes or 0} min" if a.type == "Práca" else "-"
+        if a.type == "Práca" and a.break_minutes:
+            br += " (odr.)" if a.deduct_break else " (platená)"
+        data.append([
+            pdf_paragraph(a.work_date.strftime("%d.%m.%Y"), small_center),
+            pdf_paragraph(a.type, small),
+            pdf_paragraph(time_text, small_center),
+            pdf_paragraph(br, small_center),
+            pdf_paragraph(f"{attendance_hours(a):.2f}", small_center),
+            pdf_paragraph(STATUS_SK.get(a.status, a.status), small),
+            pdf_paragraph(a.note or "", small),
+        ])
+    table = LongTable(data, colWidths=[22 * mm, 25 * mm, 31 * mm, 28 * mm, 18 * mm, 27 * mm, 44 * mm], repeatRows=1, hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#348C2E")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "VeraBd"),
+        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D9E3D8")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7FAF7")]),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(table)
+    doc.build(story, onFirstPage=pdf_footer, onLaterPages=pdf_footer)
+    return buf.getvalue()
+
+
+def build_admin_xls(
+    rows,
+    date_from: Optional[date],
+    date_to: Optional[date],
+    user_label: str,
+    location_label: str,
+):
+    if len(rows) > 65000:
+        raise HTTPException(400, "Export XLS podporuje najviac 65 000 záznamov naraz. Zúž obdobie alebo filter.")
+    wb = xlwt.Workbook(encoding="utf-8")
+    ws = wb.add_sheet("Dochádzka", cell_overwrite_ok=True)
+    title_style = xlwt.easyxf("font: bold on, height 320; align: vert centre;")
+    label_style = xlwt.easyxf("font: bold on; pattern: pattern solid, fore_colour ice_blue;")
+    header_style = xlwt.easyxf("font: bold on, colour white; pattern: pattern solid, fore_colour green; align: horiz center, vert centre; borders: bottom thin, left thin, right thin, top thin;")
+    cell_style = xlwt.easyxf("align: vert top; borders: bottom thin, left thin, right thin, top thin;")
+    center_style = xlwt.easyxf("align: horiz center, vert top; borders: bottom thin, left thin, right thin, top thin;")
+    hours_style = xlwt.easyxf("align: horiz right, vert top; borders: bottom thin, left thin, right thin, top thin;", num_format_str="0.00")
+    summary_style = xlwt.easyxf("font: bold on; pattern: pattern solid, fore_colour light_green;")
+
+    ws.write_merge(0, 0, 0, 5, "MIELL Dochádzka - Export", title_style)
+    ws.write(2, 0, "Obdobie", label_style); ws.write(2, 1, export_period_text(date_from, date_to))
+    ws.write(3, 0, "Zamestnanec", label_style); ws.write(3, 1, user_label)
+    ws.write(4, 0, "Prevádzka", label_style); ws.write(4, 1, location_label)
+
+    headers = ["Dátum", "Osobné číslo", "Zamestnanec", "Prevádzka", "Typ", "Od", "Do", "Prestávka min", "Prestávka odrátaná", "Odpracované hodiny", "Stav", "Poznámka"]
+    header_row = 6
+    for c, h in enumerate(headers):
+        ws.write(header_row, c, h, header_style)
+
+    for r, a in enumerate(rows, start=header_row + 1):
+        values = [
+            a.work_date.strftime("%d.%m.%Y"), a.user.personal_number, a.user.name,
+            a.location.name, a.type, a.time_from or "", a.time_to or "",
+            int(a.break_minutes or 0), "Áno" if a.deduct_break else "Nie",
+            attendance_hours(a), STATUS_SK.get(a.status, a.status), a.note or "",
+        ]
+        for c, value in enumerate(values):
+            if c == 9:
+                ws.write(r, c, value, hours_style)
+            elif c in {0, 5, 6, 7, 8}:
+                ws.write(r, c, value, center_style)
+            else:
+                ws.write(r, c, value, cell_style)
+
+    end_row = header_row + 1 + len(rows) + 1
+    approved_hours = sum(attendance_hours(a) for a in rows if a.status == "approved")
+    all_hours = sum(attendance_hours(a) for a in rows)
+    ws.write(end_row, 0, "Súhrn", summary_style)
+    ws.write(end_row, 1, f"Počet záznamov: {len(rows)}", summary_style)
+    ws.write(end_row, 2, f"Schválené hodiny: {approved_hours:.2f}", summary_style)
+    ws.write(end_row, 3, f"Evidované hodiny spolu: {all_hours:.2f}", summary_style)
+
+    widths = [13, 16, 24, 22, 18, 9, 9, 15, 20, 18, 22, 42]
+    for i, w in enumerate(widths):
+        ws.col(i).width = min(255, w) * 256
+    ws.panes_frozen = True
+    ws.horz_split_pos = header_row + 1
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def resolve_filter_labels(session: Session, user_id: Optional[int], location_id: Optional[int]):
+    user_label = "Všetci"
+    location_label = "Všetky"
+    if user_id:
+        u = session.get(User, user_id)
+        user_label = u.name if u else f"ID {user_id}"
+    if location_id:
+        loc = session.get(Location, location_id)
+        location_label = loc.name if loc else f"ID {location_id}"
+    return user_label, location_label
+
+
+def employee_export_token(user: User, date_from: date, date_to: date) -> str:
+    payload = {
+        "sub": str(user.id),
+        "scope": "attendance_pdf",
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+        "exp": datetime.utcnow() + timedelta(minutes=5),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
+
+@app.get("/api/my/export-link")
+def my_export_link(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    user: User = Depends(get_current_user),
+):
+    if date_from > date_to:
+        raise HTTPException(400, "Dátum Od nemôže byť neskôr ako Dátum Do")
+    if (date_to - date_from).days > 370:
+        raise HTTPException(400, "PDF je možné vytvoriť najviac za obdobie 371 dní")
+    token = employee_export_token(user, date_from, date_to)
+    return {"url": f"/api/my-attendance.pdf?download_token={token}", "expires_in_seconds": 300}
+
+
+@app.get("/api/my-attendance.pdf")
+def my_attendance_pdf(
+    download_token: str = Query(...),
+    session: Session = Depends(db),
+):
+    try:
+        data = jwt.decode(download_token, JWT_SECRET, algorithms=[JWT_ALG])
+        if data.get("scope") != "attendance_pdf":
+            raise ValueError("scope")
+        uid = int(data["sub"])
+        date_from = date.fromisoformat(data["date_from"])
+        date_to = date.fromisoformat(data["date_to"])
+    except (JWTError, KeyError, ValueError):
+        raise HTTPException(401, "Odkaz na PDF je neplatný alebo vypršal")
+    user = session.get(User, uid)
+    if not user or not user.active:
+        raise HTTPException(401, "Účet nie je aktívny")
+    rows = filtered_attendance_rows(session, date_from, date_to, user_id=user.id)
+    payload = build_employee_pdf(user, rows, date_from, date_to)
+    filename = f"dochadzka_{user.personal_number}_{date_from.isoformat()}_{date_to.isoformat()}.pdf"
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/export.pdf")
+def export_pdf(
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    user_id: Optional[int] = Query(None),
+    location_id: Optional[int] = Query(None),
+    session: Session = Depends(db),
+    _: User = Depends(admin_only),
+):
+    rows = filtered_attendance_rows(session, date_from, date_to, user_id, location_id)
+    user_label, location_label = resolve_filter_labels(session, user_id, location_id)
+    payload = build_admin_pdf(rows, date_from, date_to, user_label, location_label)
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="dochadzka_export.pdf"'},
+    )
+
+
+@app.get("/api/export.xls")
+def export_xls(
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    user_id: Optional[int] = Query(None),
+    location_id: Optional[int] = Query(None),
+    session: Session = Depends(db),
+    _: User = Depends(admin_only),
+):
+    rows = filtered_attendance_rows(session, date_from, date_to, user_id, location_id)
+    user_label, location_label = resolve_filter_labels(session, user_id, location_id)
+    payload = build_admin_xls(rows, date_from, date_to, user_label, location_label)
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type="application/vnd.ms-excel",
+        headers={"Content-Disposition": 'attachment; filename="dochadzka_export.xls"'},
+    )
+
+
 @app.get("/api/export.csv")
 def export_csv(
     date_from: Optional[date] = Query(None),
@@ -837,16 +1265,7 @@ def export_csv(
     session: Session = Depends(db),
     _: User = Depends(admin_only),
 ):
-    stmt = select(Attendance).order_by(Attendance.work_date, Attendance.user_id)
-    if date_from:
-        stmt = stmt.where(Attendance.work_date >= date_from)
-    if date_to:
-        stmt = stmt.where(Attendance.work_date <= date_to)
-    if user_id:
-        stmt = stmt.where(Attendance.user_id == user_id)
-    if location_id:
-        stmt = stmt.where(Attendance.location_id == location_id)
-    rows = session.scalars(stmt).all()
+    rows = filtered_attendance_rows(session, date_from, date_to, user_id, location_id)
 
     output = io.StringIO()
     output.write("\ufeff")
