@@ -67,13 +67,18 @@
 
     <div id="export" class="tab hidden">
       <div class="card">
-        <h3>CSV export</h3>
+        <h3>Export dochádzky</h3>
+        <div class="muted">Zvolené filtre sa použijú pre všetky formáty exportu.</div>
         <div class="grid">
           <div><label>Od</label><input id="eFrom" type="date"></div><div><label>Do</label><input id="eTo" type="date"></div>
           <div><label>Zamestnanec</label><select id="eUser"><option value="">Všetci</option></select></div>
           <div><label>Prevádzka</label><select id="eLoc"><option value="">Všetky</option></select></div>
         </div>
-        <button id="download" class="primary" style="margin-top:14px">Stiahnuť CSV</button>
+        <div class="row" style="margin-top:14px">
+          <button id="downloadPdf" class="primary">Stiahnuť PDF</button>
+          <button id="downloadXls" class="ghost">Stiahnuť XLS</button>
+          <button id="downloadCsv" class="ghost">Stiahnuť CSV</button>
+        </div>
       </div>
     </div>
   </section>
@@ -300,7 +305,11 @@ document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.query
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).close());
 $("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("saveLoc").onclick=saveLocation;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;$("addLocShift").onclick=()=>{locShiftDraft.push(newShiftDraft());renderLocShiftRows()};
 ["fFrom","fTo","fUser","fLoc"].forEach(id=>$(id).oninput=renderAttendance);
-$("download").onclick=async()=>{const q=new URLSearchParams();if($("eFrom").value)q.set("date_from",$("eFrom").value);if($("eTo").value)q.set("date_to",$("eTo").value);if($("eUser").value)q.set("user_id",$("eUser").value);if($("eLoc").value)q.set("location_id",$("eLoc").value);const r=await fetch("/api/export.csv?"+q.toString(),{headers:{Authorization:"Bearer "+token}});if(!r.ok){let m="Export zlyhal";try{m=(await r.json()).detail||m}catch{}return alert(m)}const b=await r.blob(),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download="dochadzka_export.csv";a.click();URL.revokeObjectURL(u)};
+function exportQuery(){const q=new URLSearchParams();if($("eFrom").value)q.set("date_from",$("eFrom").value);if($("eTo").value)q.set("date_to",$("eTo").value);if($("eUser").value)q.set("user_id",$("eUser").value);if($("eLoc").value)q.set("location_id",$("eLoc").value);return q.toString()}
+async function downloadExport(endpoint,filename){const r=await fetch(endpoint+"?"+exportQuery(),{headers:{Authorization:"Bearer "+token}});if(!r.ok){let m="Export zlyhal";try{m=(await r.json()).detail||m}catch{}return alert(m)}const b=await r.blob(),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000)}
+$("downloadPdf").onclick=()=>downloadExport("/api/export.pdf","dochadzka_export.pdf");
+$("downloadXls").onclick=()=>downloadExport("/api/export.xls","dochadzka_export.xls");
+$("downloadCsv").onclick=()=>downloadExport("/api/export.csv","dochadzka_export.csv");
 const m=new Date(),first=new Date(m.getFullYear(),m.getMonth(),1),last=new Date(m.getFullYear(),m.getMonth()+1,0);const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;["fFrom","eFrom"].forEach(id=>$(id).value=localDate(first));["fTo","eTo"].forEach(id=>$(id).value=localDate(last));
 if(token){$("loginCard").classList.add("hidden");$("app").classList.remove("hidden");refresh().catch(()=>{localStorage.removeItem("dochadzka_token");location.reload()})}
 </script>
