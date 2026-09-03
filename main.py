@@ -103,6 +103,8 @@ class Attendance(Base):
     break_minutes: Mapped[int] = mapped_column(Integer, default=0)
     deduct_break: Mapped[bool] = mapped_column(Boolean, default=True)
     km: Mapped[int] = mapped_column(Integer, default=0)
+    billing_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    billing_confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     note: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="pending")
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
@@ -187,6 +189,7 @@ class AttendanceIn(BaseModel):
     break_minutes: int = 0
     deduct_break: bool = True
     km: int = 0
+    billing_confirmed: bool = False
     note: str = ""
     user_id: Optional[int] = None
 
@@ -209,7 +212,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.5")
+app = FastAPI(title="Dochádzka API", version="5.6")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -397,6 +400,8 @@ def serialize_attendance(a: Attendance):
         "break_minutes": a.break_minutes,
         "deduct_break": bool(a.deduct_break),
         "km": int(a.km or 0),
+        "billing_confirmed": bool(a.billing_confirmed),
+        "billing_confirmed_at": a.billing_confirmed_at.isoformat() if a.billing_confirmed_at else None,
         "hours": round(attendance_hours(a), 2),
         "note": a.note,
         "status": a.status,
@@ -415,6 +420,8 @@ def ensure_schema_columns():
         "attendance": [
             ("deduct_break", "BOOLEAN NOT NULL DEFAULT TRUE"),
             ("km", "INTEGER NOT NULL DEFAULT 0"),
+            ("billing_confirmed", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("billing_confirmed_at", "TIMESTAMP NULL"),
         ],
     }
     with engine.begin() as conn:
@@ -840,6 +847,16 @@ def create_attendance(
         data.type, data.time_from, data.time_to, data.break_minutes, data.deduct_break
     )
     km = normalize_km(data.km, data.type, location)
+
+    # Employee must explicitly confirm every submitted attendance record.
+    if user.role != "admin" and not data.billing_confirmed:
+        raise HTTPException(
+            400,
+            "Pred odoslaním potvrď správnosť zadaných údajov a ich použitie ako podklad pre fakturáciu",
+        )
+    billing_confirmed = bool(data.billing_confirmed) if user.role != "admin" else False
+    billing_confirmed_at = datetime.utcnow() if billing_confirmed else None
+
     obj = Attendance(
         work_date=data.work_date,
         user_id=target_user_id,
@@ -850,6 +867,8 @@ def create_attendance(
         break_minutes=break_minutes,
         deduct_break=deduct_break,
         km=km,
+        billing_confirmed=billing_confirmed,
+        billing_confirmed_at=billing_confirmed_at,
         note=data.note.strip(),
         status="approved" if user.role == "admin" else "pending",
     )
@@ -1056,7 +1075,7 @@ def build_admin_pdf(
     ))
     story.append(Spacer(1, 3 * mm))
 
-    headers = ["Dátum", "Os. číslo", "Zamestnanec", "Prevádzka", "Typ", "Od", "Do", "Prestávka", "Odr.", "Hodiny", "KM", "Stav", "Poznámka"]
+    headers = ["Dátum", "Os. číslo", "Zamestnanec", "Prevádzka", "Typ", "Od", "Do", "Prestávka", "Odr.", "Hodiny", "KM", "Fakturácia", "Stav", "Poznámka"]
     data = [[pdf_paragraph(h, small_center) for h in headers]]
     for a in rows:
         data.append([
@@ -1071,10 +1090,11 @@ def build_admin_pdf(
             pdf_paragraph("Áno" if a.deduct_break else "Nie", small_center),
             pdf_paragraph(f"{attendance_hours(a):.2f}", small_center),
             pdf_paragraph(str(int(a.km or 0)) if a.km else "", small_center),
+            pdf_paragraph("Potvrdené" if a.billing_confirmed else "Nie", small_center),
             pdf_paragraph(STATUS_SK.get(a.status, a.status), small),
             pdf_paragraph(a.note or "", small),
         ])
-    col_widths = [18, 19, 29, 26, 20, 13, 13, 17, 12, 14, 14, 25, 41]
+    col_widths = [18, 18, 27, 24, 18, 12, 12, 16, 11, 13, 12, 20, 23, 37]
     table = LongTable(data, colWidths=[x * mm for x in col_widths], repeatRows=1, hAlign="LEFT")
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#348C2E")),
@@ -1224,7 +1244,7 @@ def build_admin_xls(
     ws.write(3, 0, "Zamestnanec", label_style); ws.write(3, 1, user_label)
     ws.write(4, 0, "Prevádzka", label_style); ws.write(4, 1, location_label)
 
-    headers = ["Dátum", "Osobné číslo", "Zamestnanec", "Prevádzka", "Typ", "Od", "Do", "Prestávka min", "Prestávka odrátaná", "Odpracované hodiny", "KM", "Stav", "Poznámka"]
+    headers = ["Dátum", "Osobné číslo", "Zamestnanec", "Prevádzka", "Typ", "Od", "Do", "Prestávka min", "Prestávka odrátaná", "Odpracované hodiny", "KM", "Fakturácia potvrdená", "Potvrdené dňa (UTC)", "Stav", "Poznámka"]
     header_row = 6
     for c, h in enumerate(headers):
         ws.write(header_row, c, h, header_style)
@@ -1234,12 +1254,15 @@ def build_admin_xls(
             a.work_date.strftime("%d.%m.%Y"), a.user.personal_number, a.user.name,
             a.location.name, a.type, a.time_from or "", a.time_to or "",
             int(a.break_minutes or 0), "Áno" if a.deduct_break else "Nie",
-            attendance_hours(a), int(a.km or 0), STATUS_SK.get(a.status, a.status), a.note or "",
+            attendance_hours(a), int(a.km or 0),
+            "Áno" if a.billing_confirmed else "Nie",
+            a.billing_confirmed_at.strftime("%d.%m.%Y %H:%M:%S") if a.billing_confirmed_at else "",
+            STATUS_SK.get(a.status, a.status), a.note or "",
         ]
         for c, value in enumerate(values):
             if c in {9, 10}:
                 ws.write(r, c, value, hours_style)
-            elif c in {0, 5, 6, 7, 8}:
+            elif c in {0, 5, 6, 7, 8, 11, 12}:
                 ws.write(r, c, value, center_style)
             else:
                 ws.write(r, c, value, cell_style)
@@ -1253,7 +1276,7 @@ def build_admin_xls(
     ws.write(end_row, 3, f"Evidované hodiny spolu: {all_hours:.2f}", summary_style)
     ws.write(end_row, 4, f"KM spolu: {sum(int(a.km or 0) for a in rows)}", summary_style)
 
-    widths = [13, 16, 24, 22, 18, 9, 9, 15, 20, 18, 10, 22, 42]
+    widths = [13, 16, 24, 22, 18, 9, 9, 15, 20, 18, 10, 20, 22, 22, 42]
     for i, w in enumerate(widths):
         ws.col(i).width = min(255, w) * 256
     ws.panes_frozen = True
@@ -1382,7 +1405,8 @@ def export_csv(
     writer = csv.writer(output, delimiter=";")
     writer.writerow([
         "Dátum", "Osobné číslo", "Zamestnanec", "Prevádzka", "Typ",
-        "Od", "Do", "Prestávka min", "Prestávka odrátaná", "Odpracované hodiny", "KM", "Stav", "Poznámka"
+        "Od", "Do", "Prestávka min", "Prestávka odrátaná", "Odpracované hodiny", "KM",
+        "Fakturácia potvrdená", "Potvrdené dňa (UTC)", "Stav", "Poznámka"
     ])
     for a in rows:
         writer.writerow([
@@ -1397,6 +1421,8 @@ def export_csv(
             "Áno" if a.deduct_break else "Nie",
             f"{attendance_hours(a):.2f}",
             int(a.km or 0),
+            "Áno" if a.billing_confirmed else "Nie",
+            a.billing_confirmed_at.strftime("%Y-%m-%d %H:%M:%S") if a.billing_confirmed_at else "",
             a.status,
             a.note or "",
         ])
