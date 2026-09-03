@@ -1,8 +1,10 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 const apiBase = String.fromEnvironment(
   'API_URL',
@@ -421,6 +423,7 @@ class _EmployeeHomeState extends State<EmployeeHome> {
   List<dynamic> attendance = [];
   List<dynamic> locations = [];
   bool loading = true;
+  bool exportingPdf = false;
   String? error;
   DateTime selectedMonth = monthStart(DateTime.now());
 
@@ -468,6 +471,29 @@ class _EmployeeHomeState extends State<EmployeeHome> {
     if (picked != null) {
       selectedMonth = DateTime(picked.year, picked.month, 1);
       await refresh();
+    }
+  }
+
+  Future<void> exportPdf() async {
+    if (exportingPdf) return;
+    setState(() => exportingPdf = true);
+    try {
+      final data = await api.request(
+        '/api/my/export-link?date_from=${isoDate(monthStart(selectedMonth))}&date_to=${isoDate(monthEnd(selectedMonth))}',
+      );
+      final path = data?['url']?.toString();
+      if (path == null || path.isEmpty) {
+        throw Exception('Server nevrátil odkaz na PDF');
+      }
+      final uri = Uri.parse(path.startsWith('http') ? path : '$apiBase$path');
+      final opened = kIsWeb
+          ? await launchUrl(uri, webOnlyWindowName: '_self')
+          : await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) throw Exception('PDF sa nepodarilo otvoriť');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => exportingPdf = false);
     }
   }
 
@@ -549,6 +575,21 @@ class _EmployeeHomeState extends State<EmployeeHome> {
                 selectedMonth = monthStart(DateTime.now());
                 await refresh();
               },
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: exportingPdf ? null : exportPdf,
+                icon: exportingPdf
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.picture_as_pdf_outlined),
+                label: Text(exportingPdf ? 'Generujem PDF…' : 'PDF za ${monthTitle(selectedMonth)}'),
+              ),
             ),
             const SizedBox(height: 10),
             Row(
