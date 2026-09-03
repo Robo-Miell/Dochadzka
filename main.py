@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String, Table as SqlTable, Text, create_engine, inspect, select, text
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Table as SqlTable, Text, create_engine, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 from reportlab.lib import colors
