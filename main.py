@@ -53,6 +53,7 @@ class Location(Base):
     name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
     city: Mapped[str] = mapped_column(String(120), default="")
     address: Mapped[str] = mapped_column(String(250), default="")
+    km_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 user_locations = SqlTable(
@@ -101,6 +102,7 @@ class Attendance(Base):
     time_to: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
     break_minutes: Mapped[int] = mapped_column(Integer, default=0)
     deduct_break: Mapped[bool] = mapped_column(Boolean, default=True)
+    km: Mapped[int] = mapped_column(Integer, default=0)
     note: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="pending")
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
@@ -118,12 +120,14 @@ class LocationIn(BaseModel):
     name: str
     city: str = ""
     address: str = ""
+    km_enabled: bool = False
 
 
 class LocationUpdate(BaseModel):
     name: Optional[str] = None
     city: Optional[str] = None
     address: Optional[str] = None
+    km_enabled: Optional[bool] = None
 
 
 class LocationOut(BaseModel):
@@ -132,6 +136,7 @@ class LocationOut(BaseModel):
     name: str
     city: str
     address: str
+    km_enabled: bool = False
 
 
 class ShiftIn(BaseModel):
@@ -181,6 +186,7 @@ class AttendanceIn(BaseModel):
     time_to: Optional[str] = None
     break_minutes: int = 0
     deduct_break: bool = True
+    km: int = 0
     note: str = ""
     user_id: Optional[int] = None
 
@@ -194,6 +200,7 @@ class AttendanceUpdate(BaseModel):
     time_to: Optional[str] = None
     break_minutes: Optional[int] = None
     deduct_break: Optional[bool] = None
+    km: Optional[int] = None
     note: Optional[str] = None
     status: Optional[str] = None
 
@@ -202,7 +209,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.4")
+app = FastAPI(title="Dochádzka API", version="5.5")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -307,6 +314,18 @@ def normalize_attendance_fields(
     return time_from, time_to, break_minutes, bool(deduct_break)
 
 
+def normalize_km(value: Optional[int], item_type: str, location: Location) -> int:
+    if item_type != "Práca" or not location.km_enabled:
+        return 0
+    try:
+        km = int(value or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Kilometre musia byť celé číslo")
+    if km < 0 or km > 100000:
+        raise HTTPException(400, "Kilometre musia byť medzi 0 a 100 000")
+    return km
+
+
 def assigned_location_ids(user: User) -> list[int]:
     ids = [loc.id for loc in (user.locations or [])]
     if not ids and user.location_id is not None:
@@ -377,6 +396,7 @@ def serialize_attendance(a: Attendance):
         "time_to": a.time_to,
         "break_minutes": a.break_minutes,
         "deduct_break": bool(a.deduct_break),
+        "km": int(a.km or 0),
         "hours": round(attendance_hours(a), 2),
         "note": a.note,
         "status": a.status,
@@ -387,12 +407,14 @@ def ensure_schema_columns():
     """Add columns introduced after the first deployment without deleting existing data."""
     inspector = inspect(engine)
     migrations = {
+        "locations": [("km_enabled", "BOOLEAN NOT NULL DEFAULT FALSE")],
         "shifts": [
             ("break_minutes", "INTEGER NOT NULL DEFAULT 0"),
             ("deduct_break", "BOOLEAN NOT NULL DEFAULT TRUE"),
         ],
         "attendance": [
             ("deduct_break", "BOOLEAN NOT NULL DEFAULT TRUE"),
+            ("km", "INTEGER NOT NULL DEFAULT 0"),
         ],
     }
     with engine.begin() as conn:
@@ -437,7 +459,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.4", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "5.5", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -484,7 +506,7 @@ def create_location(data: LocationIn, session: Session = Depends(db), _: User = 
         raise HTTPException(400, "Názov prevádzky je povinný")
     if session.scalar(select(Location).where(Location.name == name)):
         raise HTTPException(400, "Prevádzka s týmto názvom už existuje")
-    obj = Location(name=name, city=data.city.strip(), address=data.address.strip())
+    obj = Location(name=name, city=data.city.strip(), address=data.address.strip(), km_enabled=bool(data.km_enabled))
     session.add(obj)
     session.commit()
     session.refresh(obj)
@@ -515,6 +537,8 @@ def update_location(
         obj.city = (data.city or "").strip()
     if "address" in fields:
         obj.address = (data.address or "").strip()
+    if "km_enabled" in fields:
+        obj.km_enabled = bool(data.km_enabled)
 
     session.commit()
     session.refresh(obj)
@@ -567,7 +591,8 @@ def shifts(
 
 @app.post("/api/shifts")
 def create_shift(data: ShiftIn, session: Session = Depends(db), _: User = Depends(admin_only)):
-    if not session.get(Location, data.location_id):
+    location = session.get(Location, data.location_id)
+    if not location:
         raise HTTPException(400, "Prevádzka neexistuje")
     name = data.name.strip()
     if not name:
@@ -813,6 +838,7 @@ def create_attendance(
     time_from, time_to, break_minutes, deduct_break = normalize_attendance_fields(
         data.type, data.time_from, data.time_to, data.break_minutes, data.deduct_break
     )
+    km = normalize_km(data.km, data.type, location)
     obj = Attendance(
         work_date=data.work_date,
         user_id=target_user_id,
@@ -822,6 +848,7 @@ def create_attendance(
         time_to=time_to,
         break_minutes=break_minutes,
         deduct_break=deduct_break,
+        km=km,
         note=data.note.strip(),
         status="approved" if user.role == "admin" else "pending",
     )
@@ -874,6 +901,8 @@ def update_attendance(
     obj.time_from, obj.time_to, obj.break_minutes, obj.deduct_break = normalize_attendance_fields(
         obj.type, raw_from, raw_to, raw_break, raw_deduct
     )
+    location = session.get(Location, obj.location_id)
+    obj.km = normalize_km(data.km if "km" in fields else obj.km, obj.type, location)
 
     session.commit()
     session.refresh(obj)
@@ -1026,7 +1055,7 @@ def build_admin_pdf(
     ))
     story.append(Spacer(1, 3 * mm))
 
-    headers = ["Dátum", "Os. číslo", "Zamestnanec", "Prevádzka", "Typ", "Od", "Do", "Prestávka", "Odr.", "Hodiny", "Stav", "Poznámka"]
+    headers = ["Dátum", "Os. číslo", "Zamestnanec", "Prevádzka", "Typ", "Od", "Do", "Prestávka", "Odr.", "Hodiny", "KM", "Stav", "Poznámka"]
     data = [[pdf_paragraph(h, small_center) for h in headers]]
     for a in rows:
         data.append([
@@ -1040,10 +1069,11 @@ def build_admin_pdf(
             pdf_paragraph(f"{a.break_minutes or 0} min", small_center),
             pdf_paragraph("Áno" if a.deduct_break else "Nie", small_center),
             pdf_paragraph(f"{attendance_hours(a):.2f}", small_center),
+            pdf_paragraph(str(int(a.km or 0)) if a.km else "", small_center),
             pdf_paragraph(STATUS_SK.get(a.status, a.status), small),
             pdf_paragraph(a.note or "", small),
         ])
-    col_widths = [18, 20, 32, 29, 22, 13, 13, 18, 13, 16, 27, 48]
+    col_widths = [18, 19, 29, 26, 20, 13, 13, 17, 12, 14, 14, 25, 41]
     table = LongTable(data, colWidths=[x * mm for x in col_widths], repeatRows=1, hAlign="LEFT")
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#348C2E")),
@@ -1061,7 +1091,8 @@ def build_admin_pdf(
     story.append(Spacer(1, 4 * mm))
     approved_hours = sum(attendance_hours(a) for a in rows if a.status == "approved")
     all_hours = sum(attendance_hours(a) for a in rows)
-    story.append(Paragraph(f"Počet záznamov: {len(rows)} &nbsp;&nbsp; | &nbsp;&nbsp; Schválené pracovné hodiny: {approved_hours:.2f} h &nbsp;&nbsp; | &nbsp;&nbsp; Evidované pracovné hodiny spolu: {all_hours:.2f} h", summary))
+    total_km = sum(int(a.km or 0) for a in rows)
+    story.append(Paragraph(f"Počet záznamov: {len(rows)} &nbsp;&nbsp; | &nbsp;&nbsp; Schválené pracovné hodiny: {approved_hours:.2f} h &nbsp;&nbsp; | &nbsp;&nbsp; Evidované pracovné hodiny spolu: {all_hours:.2f} h &nbsp;&nbsp; | &nbsp;&nbsp; KM spolu: {total_km}", summary))
     doc.build(story, onFirstPage=pdf_footer, onLaterPages=pdf_footer)
     return buf.getvalue()
 
@@ -1117,10 +1148,11 @@ def build_employee_pdf(user: User, rows, date_from: date, date_to: date):
 
     approved_hours = sum(attendance_hours(a) for a in rows if a.status == "approved")
     pending_count = sum(1 for a in rows if a.status == "pending")
+    total_km = sum(int(a.km or 0) for a in rows)
     summary_table = Table([
-        [Paragraph("Schválené hodiny", small), Paragraph("Čakajúce záznamy", small), Paragraph("Záznamy spolu", small)],
-        [Paragraph(f"{approved_hours:.2f} h", strong), Paragraph(str(pending_count), strong), Paragraph(str(len(rows)), strong)],
-    ], colWidths=[58 * mm, 58 * mm, 58 * mm])
+        [Paragraph("Schválené hodiny", small), Paragraph("KM spolu", small), Paragraph("Čakajúce záznamy", small), Paragraph("Záznamy spolu", small)],
+        [Paragraph(f"{approved_hours:.2f} h", strong), Paragraph(str(total_km), strong), Paragraph(str(pending_count), strong), Paragraph(str(len(rows)), strong)],
+    ], colWidths=[43.5 * mm, 43.5 * mm, 43.5 * mm, 43.5 * mm])
     summary_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F7FAF7")),
         ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D9E3D8")),
@@ -1132,7 +1164,7 @@ def build_employee_pdf(user: User, rows, date_from: date, date_to: date):
     story.append(summary_table)
     story.append(Spacer(1, 5 * mm))
 
-    headers = ["Dátum", "Typ", "Čas", "Prestávka", "Hodiny", "Stav", "Poznámka"]
+    headers = ["Dátum", "Typ", "Čas", "Prestávka", "Hodiny", "KM", "Stav", "Poznámka"]
     data = [[pdf_paragraph(h, small_center) for h in headers]]
     for a in rows:
         time_text = f"{a.time_from or '-'} - {a.time_to or '-'}" if a.time_from or a.time_to else "-"
@@ -1145,10 +1177,11 @@ def build_employee_pdf(user: User, rows, date_from: date, date_to: date):
             pdf_paragraph(time_text, small_center),
             pdf_paragraph(br, small_center),
             pdf_paragraph(f"{attendance_hours(a):.2f}", small_center),
+            pdf_paragraph(str(int(a.km or 0)) if a.km else "", small_center),
             pdf_paragraph(STATUS_SK.get(a.status, a.status), small),
             pdf_paragraph(a.note or "", small),
         ])
-    table = LongTable(data, colWidths=[22 * mm, 25 * mm, 31 * mm, 28 * mm, 18 * mm, 27 * mm, 44 * mm], repeatRows=1, hAlign="LEFT")
+    table = LongTable(data, colWidths=[21 * mm, 21 * mm, 28 * mm, 25 * mm, 17 * mm, 15 * mm, 24 * mm, 35 * mm], repeatRows=1, hAlign="LEFT")
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#348C2E")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -1190,7 +1223,7 @@ def build_admin_xls(
     ws.write(3, 0, "Zamestnanec", label_style); ws.write(3, 1, user_label)
     ws.write(4, 0, "Prevádzka", label_style); ws.write(4, 1, location_label)
 
-    headers = ["Dátum", "Osobné číslo", "Zamestnanec", "Prevádzka", "Typ", "Od", "Do", "Prestávka min", "Prestávka odrátaná", "Odpracované hodiny", "Stav", "Poznámka"]
+    headers = ["Dátum", "Osobné číslo", "Zamestnanec", "Prevádzka", "Typ", "Od", "Do", "Prestávka min", "Prestávka odrátaná", "Odpracované hodiny", "KM", "Stav", "Poznámka"]
     header_row = 6
     for c, h in enumerate(headers):
         ws.write(header_row, c, h, header_style)
@@ -1200,10 +1233,10 @@ def build_admin_xls(
             a.work_date.strftime("%d.%m.%Y"), a.user.personal_number, a.user.name,
             a.location.name, a.type, a.time_from or "", a.time_to or "",
             int(a.break_minutes or 0), "Áno" if a.deduct_break else "Nie",
-            attendance_hours(a), STATUS_SK.get(a.status, a.status), a.note or "",
+            attendance_hours(a), int(a.km or 0), STATUS_SK.get(a.status, a.status), a.note or "",
         ]
         for c, value in enumerate(values):
-            if c == 9:
+            if c in {9, 10}:
                 ws.write(r, c, value, hours_style)
             elif c in {0, 5, 6, 7, 8}:
                 ws.write(r, c, value, center_style)
@@ -1217,8 +1250,9 @@ def build_admin_xls(
     ws.write(end_row, 1, f"Počet záznamov: {len(rows)}", summary_style)
     ws.write(end_row, 2, f"Schválené hodiny: {approved_hours:.2f}", summary_style)
     ws.write(end_row, 3, f"Evidované hodiny spolu: {all_hours:.2f}", summary_style)
+    ws.write(end_row, 4, f"KM spolu: {sum(int(a.km or 0) for a in rows)}", summary_style)
 
-    widths = [13, 16, 24, 22, 18, 9, 9, 15, 20, 18, 22, 42]
+    widths = [13, 16, 24, 22, 18, 9, 9, 15, 20, 18, 10, 22, 42]
     for i, w in enumerate(widths):
         ws.col(i).width = min(255, w) * 256
     ws.panes_frozen = True
@@ -1347,7 +1381,7 @@ def export_csv(
     writer = csv.writer(output, delimiter=";")
     writer.writerow([
         "Dátum", "Osobné číslo", "Zamestnanec", "Prevádzka", "Typ",
-        "Od", "Do", "Prestávka min", "Prestávka odrátaná", "Odpracované hodiny", "Stav", "Poznámka"
+        "Od", "Do", "Prestávka min", "Prestávka odrátaná", "Odpracované hodiny", "KM", "Stav", "Poznámka"
     ])
     for a in rows:
         writer.writerow([
@@ -1361,6 +1395,7 @@ def export_csv(
             a.break_minutes or 0,
             "Áno" if a.deduct_break else "Nie",
             f"{attendance_hours(a):.2f}",
+            int(a.km or 0),
             a.status,
             a.note or "",
         ])
