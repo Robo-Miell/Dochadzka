@@ -830,8 +830,9 @@ def create_attendance(
     target_user = session.get(User, target_user_id)
     if not target_user or target_user.role != "employee":
         raise HTTPException(400, "Zamestnanec neexistuje")
-    if not session.get(Location, data.location_id):
-        raise HTTPException(400, "Prevádzka neexistuje")
+   location = session.get(Location, data.location_id)
+if not location:
+    raise HTTPException(400, "Prevádzka neexistuje")
     if user.role != "admin" and data.location_id not in assigned_location_ids(user):
         raise HTTPException(403, "Táto prevádzka ti nie je priradená")
 
