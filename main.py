@@ -212,7 +212,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.6")
+app = FastAPI(title="Dochádzka API", version="5.8")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -977,6 +977,7 @@ def filtered_attendance_rows(
     date_to: Optional[date] = None,
     user_id: Optional[int] = None,
     location_id: Optional[int] = None,
+    user_ids: Optional[list[int]] = None,
 ):
     if date_from and date_to and date_from > date_to:
         raise HTTPException(400, "Dátum Od nemôže byť neskôr ako Dátum Do")
@@ -985,11 +986,36 @@ def filtered_attendance_rows(
         stmt = stmt.where(Attendance.work_date >= date_from)
     if date_to:
         stmt = stmt.where(Attendance.work_date <= date_to)
-    if user_id:
+    if user_ids:
+        stmt = stmt.where(Attendance.user_id.in_(user_ids))
+    elif user_id:
         stmt = stmt.where(Attendance.user_id == user_id)
     if location_id:
         stmt = stmt.where(Attendance.location_id == location_id)
     return session.scalars(stmt).all()
+
+
+def parse_user_ids_param(user_ids: Optional[str]) -> Optional[list[int]]:
+    if not user_ids:
+        return None
+    values: list[int] = []
+    seen = set()
+    for raw in user_ids.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            raise HTTPException(400, "Neplatný zoznam zamestnancov")
+        if value <= 0:
+            raise HTTPException(400, "Neplatný zoznam zamestnancov")
+        if value not in seen:
+            seen.add(value)
+            values.append(value)
+    if len(values) > 200:
+        raise HTTPException(400, "Naraz môžeš vybrať najviac 200 zamestnancov")
+    return values or None
 
 
 def export_period_text(date_from: Optional[date], date_to: Optional[date]) -> str:
@@ -1287,10 +1313,21 @@ def build_admin_xls(
     return buf.getvalue()
 
 
-def resolve_filter_labels(session: Session, user_id: Optional[int], location_id: Optional[int]):
+def resolve_filter_labels(
+    session: Session,
+    user_id: Optional[int],
+    location_id: Optional[int],
+    user_ids: Optional[list[int]] = None,
+):
     user_label = "Všetci"
     location_label = "Všetky"
-    if user_id:
+    if user_ids:
+        selected = session.scalars(
+            select(User).where(User.id.in_(user_ids)).order_by(User.name)
+        ).all()
+        names = [u.name for u in selected]
+        user_label = ", ".join(names) if names else "Vybraní zamestnanci"
+    elif user_id:
         u = session.get(User, user_id)
         user_label = u.name if u else f"ID {user_id}"
     if location_id:
@@ -1356,12 +1393,18 @@ def export_pdf(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     user_id: Optional[int] = Query(None),
+    user_ids: Optional[str] = Query(None),
     location_id: Optional[int] = Query(None),
     session: Session = Depends(db),
     _: User = Depends(admin_only),
 ):
-    rows = filtered_attendance_rows(session, date_from, date_to, user_id, location_id)
-    user_label, location_label = resolve_filter_labels(session, user_id, location_id)
+    parsed_user_ids = parse_user_ids_param(user_ids)
+    rows = filtered_attendance_rows(
+        session, date_from, date_to, user_id, location_id, parsed_user_ids
+    )
+    user_label, location_label = resolve_filter_labels(
+        session, user_id, location_id, parsed_user_ids
+    )
     payload = build_admin_pdf(rows, date_from, date_to, user_label, location_label)
     return StreamingResponse(
         io.BytesIO(payload),
@@ -1375,12 +1418,18 @@ def export_xls(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     user_id: Optional[int] = Query(None),
+    user_ids: Optional[str] = Query(None),
     location_id: Optional[int] = Query(None),
     session: Session = Depends(db),
     _: User = Depends(admin_only),
 ):
-    rows = filtered_attendance_rows(session, date_from, date_to, user_id, location_id)
-    user_label, location_label = resolve_filter_labels(session, user_id, location_id)
+    parsed_user_ids = parse_user_ids_param(user_ids)
+    rows = filtered_attendance_rows(
+        session, date_from, date_to, user_id, location_id, parsed_user_ids
+    )
+    user_label, location_label = resolve_filter_labels(
+        session, user_id, location_id, parsed_user_ids
+    )
     payload = build_admin_xls(rows, date_from, date_to, user_label, location_label)
     return StreamingResponse(
         io.BytesIO(payload),
@@ -1394,11 +1443,15 @@ def export_csv(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     user_id: Optional[int] = Query(None),
+    user_ids: Optional[str] = Query(None),
     location_id: Optional[int] = Query(None),
     session: Session = Depends(db),
     _: User = Depends(admin_only),
 ):
-    rows = filtered_attendance_rows(session, date_from, date_to, user_id, location_id)
+    parsed_user_ids = parse_user_ids_param(user_ids)
+    rows = filtered_attendance_rows(
+        session, date_from, date_to, user_id, location_id, parsed_user_ids
+    )
 
     output = io.StringIO()
     output.write("\ufeff")
