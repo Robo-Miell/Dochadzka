@@ -59,7 +59,7 @@
       <div class="filters grid">
         <div><label>Od</label><input id="fFrom" type="date"></div>
         <div><label>Do</label><input id="fTo" type="date"></div>
-        <div><label>Zamestnanec</label><select id="fUser"><option value="">Všetci</option></select></div>
+        <div><label>Zamestnanec</label><input id="fUser" type="search" list="employeeList" placeholder="Všetci / píš meno alebo osobné číslo" autocomplete="off"></div>
         <div><label>Prevádzka</label><select id="fLoc"><option value="">Všetky</option></select></div>
       </div>
       <div class="section table"><table><thead><tr><th>Dátum</th><th>Os. číslo</th><th>Meno</th><th>Prevádzka</th><th>Typ</th><th>Čas</th><th>Prestávka</th><th>Hodiny</th><th>KM</th><th>Fakturácia</th><th>Stav</th><th>Poznámka</th><th>Akcie</th></tr></thead><tbody id="attBody"></tbody></table></div>
@@ -71,7 +71,7 @@
         <div class="muted">Zvolené filtre sa použijú pre všetky formáty exportu.</div>
         <div class="grid">
           <div><label>Od</label><input id="eFrom" type="date"></div><div><label>Do</label><input id="eTo" type="date"></div>
-          <div><label>Zamestnanec</label><select id="eUser"><option value="">Všetci</option></select></div>
+          <div><label>Zamestnanec</label><input id="eUser" type="search" list="employeeList" placeholder="Všetci / píš meno alebo osobné číslo" autocomplete="off"></div>
           <div><label>Prevádzka</label><select id="eLoc"><option value="">Všetky</option></select></div>
         </div>
         <div class="row" style="margin-top:14px">
@@ -83,6 +83,8 @@
     </div>
   </section>
 </div>
+
+<datalist id="employeeList"></datalist>
 
 <dialog id="empDialog"><div class="modal">
   <div class="top"><h3 id="empTitle">Nový zamestnanec</h3><button data-close="empDialog" class="ghost">Zavrieť</button></div>
@@ -115,7 +117,7 @@
   <div class="top"><h3 id="attTitle">Nový záznam</h3><button data-close="attDialog" class="ghost">Zavrieť</button></div>
   <div class="grid3">
     <div><label>Dátum</label><input id="adate" type="date"></div>
-    <div><label>Zamestnanec</label><select id="auser"></select></div>
+    <div><label>Zamestnanec</label><input id="auser" type="search" list="employeeList" placeholder="Začni písať meno alebo osobné číslo" autocomplete="off"></div>
     <div><label>Prevádzka</label><select id="aloc"></select></div>
     <div><label>Typ</label><select id="atype"><option>Práca</option><option>Dovolenka</option><option>Lekár</option><option>PN</option><option>OČR</option><option>Náhradné voľno</option><option>Iné</option></select></div>
     <div><label>Od</label><input id="afrom" type="time"></div>
@@ -157,13 +159,38 @@ async function refresh(){
   renderEmployees();renderLocations();fillSelects();renderAttendance();renderPending();
 }
 
+function employeeLabel(u){return `${u.name} – ${u.personal_number}`}
+function normalizeSearch(v){return String(v||"").trim().toLocaleLowerCase("sk")}
+function employeeMatches(u,search){
+  const q=normalizeSearch(search);
+  if(!q)return true;
+  return normalizeSearch(u.name).includes(q)
+    || normalizeSearch(u.personal_number).includes(q)
+    || normalizeSearch(employeeLabel(u)).includes(q);
+}
+function resolveEmployee(search){
+  const q=normalizeSearch(search);
+  if(!q)return null;
+  const exact=users.find(u=>normalizeSearch(employeeLabel(u))===q)
+    || users.find(u=>normalizeSearch(u.name)===q)
+    || users.find(u=>normalizeSearch(u.personal_number)===q);
+  if(exact)return exact;
+  const matches=users.filter(u=>employeeMatches(u,q));
+  return matches.length===1?matches[0]:null;
+}
+
 function fillSelects(){
-  const uopts=users.map(x=>`<option value="${x.id}">${esc(x.personal_number)} – ${esc(x.name)}</option>`).join("");
+  const employeeOptions=users
+    .slice()
+    .sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"sk"))
+    .map(x=>`<option value="${esc(employeeLabel(x))}"></option>`)
+    .join("");
+  $("employeeList").innerHTML=employeeOptions;
+
   const lopts=locations.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("");
-  const old={fUser:$("fUser").value,eUser:$("eUser").value,fLoc:$("fLoc").value,eLoc:$("eLoc").value};
-  ["fUser","eUser"].forEach(id=>$(id).innerHTML='<option value="">Všetci</option>'+uopts);
+  const old={fLoc:$("fLoc").value,eLoc:$("eLoc").value};
   ["fLoc","eLoc"].forEach(id=>$(id).innerHTML='<option value="">Všetky</option>'+lopts);
-  $("auser").innerHTML=uopts;$("aloc").innerHTML=lopts;
+  $("aloc").innerHTML=lopts;
   Object.entries(old).forEach(([id,v])=>{if([...$(id).options].some(o=>o.value===v))$(id).value=v});
 }
 
@@ -202,8 +229,12 @@ function renderPending(){
 async function setStatus(id,s){try{await api(`/api/attendance/${id}/status`,{method:"PATCH",body:JSON.stringify({status:s})});await refresh()}catch(e){alert(e.message)}}
 
 function renderAttendance(){
-  const u=$("fUser").value,l=$("fLoc").value,fr=$("fFrom").value,to=$("fTo").value;
-  const a=attendance.filter(x=>(!u||String(x.user_id)===u)&&(!l||String(x.location_id)===l)&&(!fr||x.work_date>=fr)&&(!to||x.work_date<=to));
+  const userSearch=$("fUser").value,l=$("fLoc").value,fr=$("fFrom").value,to=$("fTo").value;
+  const a=attendance.filter(x=>{
+    const u=users.find(y=>Number(y.id)===Number(x.user_id));
+    const userOk=!userSearch || (u?employeeMatches(u,userSearch):(normalizeSearch(x.user_name).includes(normalizeSearch(userSearch))||normalizeSearch(x.personal_number).includes(normalizeSearch(userSearch))));
+    return userOk&&(!l||String(x.location_id)===l)&&(!fr||x.work_date>=fr)&&(!to||x.work_date<=to);
+  });
   $("attBody").innerHTML=a.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.personal_number)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td>${Number(x.break_minutes||0)} min ${x.type==="Práca"?(x.deduct_break===false?'<span class="badge">neodrátať</span>':'<span class="badge approved">odrátať</span>'):''}</td><td>${Number(x.hours||0).toFixed(2)}</td><td>${x.km?`${Number(x.km)} km`:"—"}</td><td>${billingConfirmation(x)}</td><td>${status(x.status)}</td><td title="${esc(x.note)}">${esc((x.note||"").length>28?(x.note||"").slice(0,28)+"…":x.note||"")}</td><td><div class="actions"><button class="ghost editAtt" data-id="${x.id}">Upraviť</button><button class="danger delAtt" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="12" class="empty">Pre zvolený filter nie sú záznamy.</td></tr>';
   document.querySelectorAll(".editAtt").forEach(b=>b.onclick=()=>openAttendance(Number(b.dataset.id)));
   document.querySelectorAll(".delAtt").forEach(b=>b.onclick=()=>deleteAttendance(Number(b.dataset.id)));
@@ -308,13 +339,16 @@ function updateAttTimeFields(){
 function openAttendance(id=null){
   attEditId=id;$("attError").textContent="";const a=id?attendance.find(x=>x.id===id):null;$("attTitle").textContent=a?"Upraviť dochádzku":"Nový záznam";
   const today=new Date().toISOString().slice(0,10);$("adate").value=a?.work_date||today;$("atype").value=a?.type||"Práca";$("afrom").value=a?.time_from||"08:00";$("ato").value=a?.time_to||"16:00";$("abreak").value=String(a?.break_minutes??30);$("adeduct").checked=a?.deduct_break!==false;$("akm").value=String(a?.km??0);$("anote").value=a?.note||"";$("astatus").value=a?.status||"approved";$("astatus").disabled=!a;
-  if(a?.user_id&&[...$("auser").options].some(o=>Number(o.value)===a.user_id))$("auser").value=String(a.user_id);else if(users.length)$("auser").value=String(users[0].id);
+  const selectedUser=a?.user_id?users.find(x=>Number(x.id)===Number(a.user_id)):users[0];
+  $("auser").value=selectedUser?employeeLabel(selectedUser):"";
   if(a?.location_id&&[...$("aloc").options].some(o=>Number(o.value)===a.location_id))$("aloc").value=String(a.location_id);else if(locations.length)$("aloc").value=String(locations[0].id);
   updateAttTimeFields();$("attDialog").showModal();
 }
 async function saveAttendance(){
   $("attError").textContent="";try{
-    const type=$("atype").value;const body={work_date:$("adate").value,user_id:Number($("auser").value),location_id:Number($("aloc").value),type,time_from:(type==="Práca"||type==="Lekár")?($("afrom").value||null):null,time_to:(type==="Práca"||type==="Lekár")?($("ato").value||null):null,break_minutes:type==="Práca"?Number($("abreak").value||0):0,deduct_break:type==="Práca"?$("adeduct").checked:false,km:type==="Práca"&&selectedAdminLocationKmEnabled()?Number($("akm").value||0):0,note:$("anote").value.trim()};if(attEditId)body.status=$("astatus").value;
+    const selectedUser=resolveEmployee($("auser").value);
+    if(!selectedUser){$("attError").textContent="Vyber konkrétneho zamestnanca podľa mena alebo osobného čísla.";return}
+    const type=$("atype").value;const body={work_date:$("adate").value,user_id:Number(selectedUser.id),location_id:Number($("aloc").value),type,time_from:(type==="Práca"||type==="Lekár")?($("afrom").value||null):null,time_to:(type==="Práca"||type==="Lekár")?($("ato").value||null):null,break_minutes:type==="Práca"?Number($("abreak").value||0):0,deduct_break:type==="Práca"?$("adeduct").checked:false,km:type==="Práca"&&selectedAdminLocationKmEnabled()?Number($("akm").value||0):0,note:$("anote").value.trim()};if(attEditId)body.status=$("astatus").value;
     await api(attEditId?`/api/attendance/${attEditId}`:"/api/attendance",{method:attEditId?"PATCH":"POST",body:JSON.stringify(body)});$("attDialog").close();await refresh();
   }catch(e){$("attError").textContent=e.message}
 }
@@ -325,8 +359,28 @@ document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.query
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).close());
 $("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("saveLoc").onclick=saveLocation;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;$("aloc").onchange=updateAttTimeFields;$("addLocShift").onclick=()=>{locShiftDraft.push(newShiftDraft());renderLocShiftRows()};
 ["fFrom","fTo","fUser","fLoc"].forEach(id=>$(id).oninput=renderAttendance);
-function exportQuery(){const q=new URLSearchParams();if($("eFrom").value)q.set("date_from",$("eFrom").value);if($("eTo").value)q.set("date_to",$("eTo").value);if($("eUser").value)q.set("user_id",$("eUser").value);if($("eLoc").value)q.set("location_id",$("eLoc").value);return q.toString()}
-async function downloadExport(endpoint,filename){const r=await fetch(endpoint+"?"+exportQuery(),{headers:{Authorization:"Bearer "+token}});if(!r.ok){let m="Export zlyhal";try{m=(await r.json()).detail||m}catch{}return alert(m)}const b=await r.blob(),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000)}
+["fUser","eUser","auser"].forEach(id=>$(id).addEventListener("blur",()=>{const u=resolveEmployee($(id).value);if(u)$(id).value=employeeLabel(u)}));
+function exportQuery(){
+  const q=new URLSearchParams();
+  if($("eFrom").value)q.set("date_from",$("eFrom").value);
+  if($("eTo").value)q.set("date_to",$("eTo").value);
+  if($("eUser").value.trim()){
+    const u=resolveEmployee($("eUser").value);
+    if(!u)throw new Error("Vyber konkrétneho zamestnanca zo zoznamu podľa mena alebo osobného čísla.");
+    q.set("user_id",String(u.id));
+  }
+  if($("eLoc").value)q.set("location_id",$("eLoc").value);
+  return q.toString()
+}
+async function downloadExport(endpoint,filename){
+  try{
+    const r=await fetch(endpoint+"?"+exportQuery(),{headers:{Authorization:"Bearer "+token}});
+    if(!r.ok){let m="Export zlyhal";try{m=(await r.json()).detail||m}catch{}throw new Error(m)}
+    const b=await r.blob(),u=URL.createObjectURL(b),a=document.createElement("a");
+    a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u),1000)
+  }catch(e){alert(e.message||"Export zlyhal")}
+}
 $("downloadPdf").onclick=()=>downloadExport("/api/export.pdf","dochadzka_export.pdf");
 $("downloadXls").onclick=()=>downloadExport("/api/export.xls","dochadzka_export.xls");
 $("downloadCsv").onclick=()=>downloadExport("/api/export.csv","dochadzka_export.csv");
