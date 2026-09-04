@@ -8,10 +8,12 @@
 :root{--bg:#f4f7f4;--card:#fff;--text:#172033;--muted:#667085;--line:#dfe6df;--accent:#4cba42;--accent-dark:#348c2e;--danger:#b42318;--ok:#067647;--warn:#b54708}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text)}button,input,select,textarea{font:inherit}.hidden{display:none!important}.wrap{max-width:1380px;margin:auto;padding:24px}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 2px 8px #1720330a}.login{max-width:440px;margin:8vh auto}.brand{display:block;max-width:280px;max-height:130px;object-fit:contain;margin:0 auto 18px}.brand-small{height:46px;max-width:190px;object-fit:contain}h1,h2,h3{margin:0 0 12px}.muted{color:var(--muted);font-size:13px}label{display:block;font-size:13px;font-weight:650;margin:10px 0 5px}input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text)}textarea{min-height:86px;resize:vertical}input[type=checkbox]{width:auto}button{border:0;border-radius:9px;padding:9px 12px;cursor:pointer;font-weight:650}.primary{background:var(--accent);color:#092205}.primary:hover{background:#45ad3c}.ghost{background:#eef2ef;color:#26332b}.danger{background:#fee4e2;color:var(--danger)}.ok{background:#dcfae6;color:var(--ok)}.warn{background:#fff0d8;color:var(--warn)}.top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}.brandrow{display:flex;align-items:center;gap:14px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.tabs button.active{background:var(--accent);color:#092205}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{font-size:28px;font-weight:800}.table{overflow:auto;border:1px solid var(--line);border-radius:12px;background:#fff}table{width:100%;border-collapse:collapse;min-width:980px}th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;font-size:14px;white-space:nowrap;vertical-align:middle}th{background:#f8faf8;color:#667085;font-size:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.section{margin-top:18px}.badge{padding:4px 8px;border-radius:99px;background:#eef2f7;font-size:12px;font-weight:700}.pending{background:#fff4e5;color:#8b4d00}.approved{background:#dcfae6;color:#067647}.rejected{background:#fee4e2;color:#b42318}.actions{display:flex;gap:6px}.actions button{padding:7px 9px}.empty{color:var(--muted);text-align:center;padding:18px}dialog{border:0;border-radius:14px;width:min(720px,95vw);padding:0;box-shadow:0 24px 80px #0004}dialog::backdrop{background:#0006}.modal{padding:18px}.checkline{display:flex;align-items:center;gap:8px;margin-top:14px}.hint{font-size:12px;color:var(--muted);margin-top:5px}.error{color:var(--danger);font-size:13px;margin-top:10px}.nowrap{white-space:nowrap}.filters{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}.month-note{font-size:12px;color:var(--muted);margin-top:6px}.shift-editor{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}.shift-editor-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.shift-editor-row{display:grid;grid-template-columns:minmax(150px,1.5fr) minmax(100px,.8fr) minmax(100px,.8fr) minmax(105px,.8fr) minmax(190px,1.2fr) auto;gap:8px;align-items:end;padding:10px 0;border-bottom:1px solid #edf1ed}.shift-editor-row:last-child{border-bottom:0}.shift-editor-row label{margin-top:0}.shift-summary{display:flex;gap:5px;flex-wrap:wrap}.shift-pill{display:inline-block;padding:4px 7px;border-radius:8px;background:#eef7ed;color:#245c21;font-size:12px;font-weight:650}.location-checks{border:1px solid var(--line);border-radius:10px;padding:8px 10px;max-height:220px;overflow:auto;background:#fff}.location-check{display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid #edf1ed}.location-check:last-child{border-bottom:0}.location-check input{margin:0}
 .employee-picker{position:relative}
-.employee-picker-box{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:44px;padding:5px 8px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.employee-picker-box{display:flex;align-items:center;gap:6px;min-height:44px;padding:5px 8px;border:1px solid var(--line);border-radius:10px;background:#fff}
 .employee-picker-box:focus-within{border-color:#6b9cff;box-shadow:0 0 0 2px #6b9cff22}
-.employee-search{flex:1;min-width:190px;border:0!important;outline:0;padding:6px 4px!important;box-shadow:none!important;background:transparent}
-.employee-chips{display:flex;gap:5px;flex-wrap:wrap}
+.employee-search{flex:1;min-width:0;border:0!important;outline:0;padding:6px 4px!important;box-shadow:none!important;background:transparent}
+.employee-dropdown-btn{flex:0 0 auto;width:34px;height:34px;padding:0;border-radius:8px;background:#f1f4f1;color:#26352a;font-size:18px;line-height:1}
+.employee-chips{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px}
+.employee-chips:empty{display:none}
 .employee-chip{display:inline-flex;align-items:center;gap:6px;background:#e8f1ff;color:#173b67;border-radius:8px;padding:5px 8px;font-size:12px;font-weight:650}
 .employee-chip button{padding:0;background:transparent;color:#526579;font-size:16px;line-height:1}
 .employee-results{position:absolute;z-index:1200;left:0;right:0;top:calc(100% + 5px);max-height:300px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 30px #17203322}
@@ -73,9 +75,10 @@
         <div><label>Do</label><input id="fTo" type="date"></div>
         <div><label>Zamestnanec</label>
   <div class="employee-picker" id="fUserPicker">
+    <div class="employee-chips" id="fUserChips"></div>
     <div class="employee-picker-box">
-      <div class="employee-chips" id="fUserChips"></div>
-      <input id="fUserSearch" class="employee-search" type="search" placeholder="Všetci – píš meno alebo osobné číslo" autocomplete="off">
+      <input id="fUserSearch" class="employee-search" type="search" placeholder="Pridať zamestnanca – píš meno alebo osobné číslo" autocomplete="off">
+      <button id="fUserDropdownBtn" class="employee-dropdown-btn" type="button" title="Zobraziť zamestnancov">⌄</button>
     </div>
     <div id="fUserResults" class="employee-results hidden"></div>
   </div>
@@ -94,9 +97,10 @@
           <div><label>Od</label><input id="eFrom" type="date"></div><div><label>Do</label><input id="eTo" type="date"></div>
           <div><label>Zamestnanec</label>
   <div class="employee-picker" id="eUserPicker">
+    <div class="employee-chips" id="eUserChips"></div>
     <div class="employee-picker-box">
-      <div class="employee-chips" id="eUserChips"></div>
-      <input id="eUserSearch" class="employee-search" type="search" placeholder="Všetci – píš meno alebo osobné číslo" autocomplete="off">
+      <input id="eUserSearch" class="employee-search" type="search" placeholder="Pridať zamestnanca – píš meno alebo osobné číslo" autocomplete="off">
+      <button id="eUserDropdownBtn" class="employee-dropdown-btn" type="button" title="Zobraziť zamestnancov">⌄</button>
     </div>
     <div id="eUserResults" class="employee-results hidden"></div>
   </div>
@@ -149,9 +153,10 @@
     <div><label>Zamestnanec</label>
   <input id="auser" type="hidden">
   <div class="employee-picker" id="aUserPicker">
+    <div class="employee-chips" id="aUserChip"></div>
     <div class="employee-picker-box">
-      <div class="employee-chips" id="aUserChip"></div>
-      <input id="aUserSearch" class="employee-search" type="search" placeholder="Píš meno alebo osobné číslo" autocomplete="off">
+      <input id="aUserSearch" class="employee-search" type="search" placeholder="Vybrať zamestnanca – píš meno alebo osobné číslo" autocomplete="off">
+      <button id="aUserDropdownBtn" class="employee-dropdown-btn" type="button" title="Zobraziť zamestnancov">⌄</button>
     </div>
     <div id="aUserResults" class="employee-results hidden"></div>
   </div>
@@ -236,6 +241,7 @@ function updateMultiResults(kind){
     $(s.search).value="";
     renderMultiChips(kind);
     updateMultiResults(kind);
+    $(s.results).classList.remove("hidden");
     $(s.search).focus();
     if(kind==="f")renderAttendance();
   });
@@ -420,10 +426,15 @@ $("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLoc
 
 $("fUserSearch").onfocus=()=>showMultiResults("f");
 $("fUserSearch").oninput=()=>showMultiResults("f");
+$("fUserDropdownBtn").onclick=e=>{e.stopPropagation();showMultiResults("f");$("fUserSearch").focus()};
+
 $("eUserSearch").onfocus=()=>showMultiResults("e");
 $("eUserSearch").oninput=()=>showMultiResults("e");
+$("eUserDropdownBtn").onclick=e=>{e.stopPropagation();showMultiResults("e");$("eUserSearch").focus()};
+
 $("aUserSearch").onfocus=showAttendanceUserResults;
 $("aUserSearch").oninput=showAttendanceUserResults;
+$("aUserDropdownBtn").onclick=e=>{e.stopPropagation();showAttendanceUserResults();$("aUserSearch").focus()};
 
 document.addEventListener("click",e=>{
   if(!$("fUserPicker").contains(e.target))hideMultiResults("f");
