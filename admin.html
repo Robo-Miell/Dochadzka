@@ -7,6 +7,18 @@
 <style>
 :root{--bg:#f4f7f4;--card:#fff;--text:#172033;--muted:#667085;--line:#dfe6df;--accent:#4cba42;--accent-dark:#348c2e;--danger:#b42318;--ok:#067647;--warn:#b54708}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text)}button,input,select,textarea{font:inherit}.hidden{display:none!important}.wrap{max-width:1380px;margin:auto;padding:24px}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 2px 8px #1720330a}.login{max-width:440px;margin:8vh auto}.brand{display:block;max-width:280px;max-height:130px;object-fit:contain;margin:0 auto 18px}.brand-small{height:46px;max-width:190px;object-fit:contain}h1,h2,h3{margin:0 0 12px}.muted{color:var(--muted);font-size:13px}label{display:block;font-size:13px;font-weight:650;margin:10px 0 5px}input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text)}textarea{min-height:86px;resize:vertical}input[type=checkbox]{width:auto}button{border:0;border-radius:9px;padding:9px 12px;cursor:pointer;font-weight:650}.primary{background:var(--accent);color:#092205}.primary:hover{background:#45ad3c}.ghost{background:#eef2ef;color:#26332b}.danger{background:#fee4e2;color:var(--danger)}.ok{background:#dcfae6;color:var(--ok)}.warn{background:#fff0d8;color:var(--warn)}.top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}.brandrow{display:flex;align-items:center;gap:14px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.tabs button.active{background:var(--accent);color:#092205}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{font-size:28px;font-weight:800}.table{overflow:auto;border:1px solid var(--line);border-radius:12px;background:#fff}table{width:100%;border-collapse:collapse;min-width:980px}th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;font-size:14px;white-space:nowrap;vertical-align:middle}th{background:#f8faf8;color:#667085;font-size:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.section{margin-top:18px}.badge{padding:4px 8px;border-radius:99px;background:#eef2f7;font-size:12px;font-weight:700}.pending{background:#fff4e5;color:#8b4d00}.approved{background:#dcfae6;color:#067647}.rejected{background:#fee4e2;color:#b42318}.actions{display:flex;gap:6px}.actions button{padding:7px 9px}.empty{color:var(--muted);text-align:center;padding:18px}dialog{border:0;border-radius:14px;width:min(720px,95vw);padding:0;box-shadow:0 24px 80px #0004}dialog::backdrop{background:#0006}.modal{padding:18px}.checkline{display:flex;align-items:center;gap:8px;margin-top:14px}.hint{font-size:12px;color:var(--muted);margin-top:5px}.error{color:var(--danger);font-size:13px;margin-top:10px}.nowrap{white-space:nowrap}.filters{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}.month-note{font-size:12px;color:var(--muted);margin-top:6px}.shift-editor{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}.shift-editor-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.shift-editor-row{display:grid;grid-template-columns:minmax(150px,1.5fr) minmax(100px,.8fr) minmax(100px,.8fr) minmax(105px,.8fr) minmax(190px,1.2fr) auto;gap:8px;align-items:end;padding:10px 0;border-bottom:1px solid #edf1ed}.shift-editor-row:last-child{border-bottom:0}.shift-editor-row label{margin-top:0}.shift-summary{display:flex;gap:5px;flex-wrap:wrap}.shift-pill{display:inline-block;padding:4px 7px;border-radius:8px;background:#eef7ed;color:#245c21;font-size:12px;font-weight:650}.location-checks{border:1px solid var(--line);border-radius:10px;padding:8px 10px;max-height:220px;overflow:auto;background:#fff}.location-check{display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid #edf1ed}.location-check:last-child{border-bottom:0}.location-check input{margin:0}
+.employee-picker{position:relative}
+.employee-picker-box{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:44px;padding:5px 8px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.employee-picker-box:focus-within{border-color:#6b9cff;box-shadow:0 0 0 2px #6b9cff22}
+.employee-search{flex:1;min-width:190px;border:0!important;outline:0;padding:6px 4px!important;box-shadow:none!important;background:transparent}
+.employee-chips{display:flex;gap:5px;flex-wrap:wrap}
+.employee-chip{display:inline-flex;align-items:center;gap:6px;background:#e8f1ff;color:#173b67;border-radius:8px;padding:5px 8px;font-size:12px;font-weight:650}
+.employee-chip button{padding:0;background:transparent;color:#526579;font-size:16px;line-height:1}
+.employee-results{position:absolute;z-index:1200;left:0;right:0;top:calc(100% + 5px);max-height:300px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 30px #17203322}
+.employee-result{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;cursor:pointer;border-bottom:1px solid #edf1ed}
+.employee-result:last-child{border-bottom:0}.employee-result:hover,.employee-result.active{background:#e8f1ff}
+.employee-result-name{font-weight:700}.employee-result-number{color:var(--muted);font-variant-numeric:tabular-nums}
+.employee-picker-empty{padding:12px;color:var(--muted);font-size:13px}
 @media(max-width:850px){.stats,.grid3{grid-template-columns:1fr 1fr}.wrap{padding:12px}.brand-small{height:36px}.brandrow h2{font-size:20px}}@media(max-width:520px){.stats,.grid,.grid3{grid-template-columns:1fr}.top{align-items:flex-start}.brandrow{align-items:flex-start}.brand-small{display:none}.actions{min-width:150px}.shift-editor-row{grid-template-columns:1fr 1fr}.shift-editor-row .shift-name,.shift-editor-row .shift-deduct,.shift-editor-row .shift-remove{grid-column:1/-1}}
 </style>
 </head>
@@ -59,7 +71,16 @@
       <div class="filters grid">
         <div><label>Od</label><input id="fFrom" type="date"></div>
         <div><label>Do</label><input id="fTo" type="date"></div>
-        <div><label>Zamestnanec</label><input id="fUser" type="search" list="employeeList" placeholder="Všetci / píš meno alebo osobné číslo" autocomplete="off"></div>
+        <div><label>Zamestnanec</label>
+  <div class="employee-picker" id="fUserPicker">
+    <div class="employee-picker-box">
+      <div class="employee-chips" id="fUserChips"></div>
+      <input id="fUserSearch" class="employee-search" type="search" placeholder="Všetci – píš meno alebo osobné číslo" autocomplete="off">
+    </div>
+    <div id="fUserResults" class="employee-results hidden"></div>
+  </div>
+  <div class="hint">Môžeš vybrať viac zamestnancov. Bez výberu sa zobrazia všetci.</div>
+</div>
         <div><label>Prevádzka</label><select id="fLoc"><option value="">Všetky</option></select></div>
       </div>
       <div class="section table"><table><thead><tr><th>Dátum</th><th>Os. číslo</th><th>Meno</th><th>Prevádzka</th><th>Typ</th><th>Čas</th><th>Prestávka</th><th>Hodiny</th><th>KM</th><th>Fakturácia</th><th>Stav</th><th>Poznámka</th><th>Akcie</th></tr></thead><tbody id="attBody"></tbody></table></div>
@@ -71,7 +92,16 @@
         <div class="muted">Zvolené filtre sa použijú pre všetky formáty exportu.</div>
         <div class="grid">
           <div><label>Od</label><input id="eFrom" type="date"></div><div><label>Do</label><input id="eTo" type="date"></div>
-          <div><label>Zamestnanec</label><input id="eUser" type="search" list="employeeList" placeholder="Všetci / píš meno alebo osobné číslo" autocomplete="off"></div>
+          <div><label>Zamestnanec</label>
+  <div class="employee-picker" id="eUserPicker">
+    <div class="employee-picker-box">
+      <div class="employee-chips" id="eUserChips"></div>
+      <input id="eUserSearch" class="employee-search" type="search" placeholder="Všetci – píš meno alebo osobné číslo" autocomplete="off">
+    </div>
+    <div id="eUserResults" class="employee-results hidden"></div>
+  </div>
+  <div class="hint">Vyber jedného alebo viac zamestnancov. Bez výberu sa exportujú všetci.</div>
+</div>
           <div><label>Prevádzka</label><select id="eLoc"><option value="">Všetky</option></select></div>
         </div>
         <div class="row" style="margin-top:14px">
@@ -84,7 +114,6 @@
   </section>
 </div>
 
-<datalist id="employeeList"></datalist>
 
 <dialog id="empDialog"><div class="modal">
   <div class="top"><h3 id="empTitle">Nový zamestnanec</h3><button data-close="empDialog" class="ghost">Zavrieť</button></div>
@@ -117,7 +146,16 @@
   <div class="top"><h3 id="attTitle">Nový záznam</h3><button data-close="attDialog" class="ghost">Zavrieť</button></div>
   <div class="grid3">
     <div><label>Dátum</label><input id="adate" type="date"></div>
-    <div><label>Zamestnanec</label><input id="auser" type="search" list="employeeList" placeholder="Začni písať meno alebo osobné číslo" autocomplete="off"></div>
+    <div><label>Zamestnanec</label>
+  <input id="auser" type="hidden">
+  <div class="employee-picker" id="aUserPicker">
+    <div class="employee-picker-box">
+      <div class="employee-chips" id="aUserChip"></div>
+      <input id="aUserSearch" class="employee-search" type="search" placeholder="Píš meno alebo osobné číslo" autocomplete="off">
+    </div>
+    <div id="aUserResults" class="employee-results hidden"></div>
+  </div>
+</div>
     <div><label>Prevádzka</label><select id="aloc"></select></div>
     <div><label>Typ</label><select id="atype"><option>Práca</option><option>Dovolenka</option><option>Lekár</option><option>PN</option><option>OČR</option><option>Náhradné voľno</option><option>Iné</option></select></div>
     <div><label>Od</label><input id="afrom" type="time"></div>
@@ -133,6 +171,7 @@
 
 <script>
 let token=localStorage.getItem("dochadzka_token")||"", users=[], locations=[], shifts=[], attendance=[];
+let selectedFilterUsers=new Set(), selectedExportUsers=new Set(), attendanceSelectedUserId=null;
 let empEditId=null, locEditId=null, attEditId=null;
 let locShiftDraft=[], locShiftDeleted=[];
 const $=id=>document.getElementById(id);
@@ -168,56 +207,76 @@ function employeeMatches(u,search){
     || normalizeSearch(u.personal_number).includes(q)
     || normalizeSearch(employeeLabel(u)).includes(q);
 }
-function resolveEmployee(search){
-  const q=normalizeSearch(search);
-  if(!q)return null;
-  const exact=users.find(u=>normalizeSearch(employeeLabel(u))===q)
-    || users.find(u=>normalizeSearch(u.name)===q)
-    || users.find(u=>normalizeSearch(u.personal_number)===q);
-  if(exact)return exact;
-  const matches=users.filter(u=>employeeMatches(u,q));
-  return matches.length===1?matches[0]:null;
+function sortedEmployees(){return users.slice().sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"sk"))}
+
+function pickerState(kind){
+  if(kind==="f")return {selected:selectedFilterUsers,chips:"fUserChips",search:"fUserSearch",results:"fUserResults",picker:"fUserPicker"};
+  return {selected:selectedExportUsers,chips:"eUserChips",search:"eUserSearch",results:"eUserResults",picker:"eUserPicker"};
 }
+function renderMultiChips(kind){
+  const s=pickerState(kind);
+  const selected=sortedEmployees().filter(u=>s.selected.has(Number(u.id)));
+  $(s.chips).innerHTML=selected.map(u=>`<span class="employee-chip">${esc(u.name)} <span>· ${esc(u.personal_number)}</span><button type="button" data-remove="${u.id}" aria-label="Odstrániť">×</button></span>`).join("");
+  $(s.chips).querySelectorAll("[data-remove]").forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    s.selected.delete(Number(b.dataset.remove));
+    renderMultiChips(kind);
+    updateMultiResults(kind);
+    if(kind==="f")renderAttendance();
+  });
+}
+function updateMultiResults(kind){
+  const s=pickerState(kind), q=$(s.search).value;
+  const matches=sortedEmployees().filter(u=>!s.selected.has(Number(u.id))&&employeeMatches(u,q)).slice(0,30);
+  $(s.results).innerHTML=matches.length
+    ? matches.map(u=>`<div class="employee-result" data-id="${u.id}"><span class="employee-result-name">${esc(u.name)}</span><span class="employee-result-number">${esc(u.personal_number)}</span></div>`).join("")
+    : '<div class="employee-picker-empty">Žiadny zamestnanec</div>';
+  $(s.results).querySelectorAll("[data-id]").forEach(r=>r.onclick=()=>{
+    s.selected.add(Number(r.dataset.id));
+    $(s.search).value="";
+    renderMultiChips(kind);
+    updateMultiResults(kind);
+    $(s.search).focus();
+    if(kind==="f")renderAttendance();
+  });
+}
+function showMultiResults(kind){const s=pickerState(kind);updateMultiResults(kind);$(s.results).classList.remove("hidden")}
+function hideMultiResults(kind){$(pickerState(kind).results).classList.add("hidden")}
+
+function renderAttendanceUser(){
+  const u=users.find(x=>Number(x.id)===Number(attendanceSelectedUserId));
+  $("auser").value=u?String(u.id):"";
+  $("aUserChip").innerHTML=u?`<span class="employee-chip">${esc(u.name)} <span>· ${esc(u.personal_number)}</span><button type="button" id="clearAUser" aria-label="Odstrániť">×</button></span>`:"";
+  if(u)$("aUserSearch").value="";
+  const clear=$("clearAUser");if(clear)clear.onclick=e=>{e.stopPropagation();attendanceSelectedUserId=null;renderAttendanceUser();showAttendanceUserResults();$("aUserSearch").focus()}
+}
+function updateAttendanceUserResults(){
+  const q=$("aUserSearch").value;
+  const matches=sortedEmployees().filter(u=>employeeMatches(u,q)&&Number(u.id)!==Number(attendanceSelectedUserId)).slice(0,30);
+  $("aUserResults").innerHTML=matches.length
+    ?matches.map(u=>`<div class="employee-result" data-id="${u.id}"><span class="employee-result-name">${esc(u.name)}</span><span class="employee-result-number">${esc(u.personal_number)}</span></div>`).join("")
+    :'<div class="employee-picker-empty">Žiadny zamestnanec</div>';
+  $("aUserResults").querySelectorAll("[data-id]").forEach(r=>r.onclick=()=>{
+    attendanceSelectedUserId=Number(r.dataset.id);
+    renderAttendanceUser();
+    $("aUserResults").classList.add("hidden");
+  });
+}
+function showAttendanceUserResults(){updateAttendanceUserResults();$("aUserResults").classList.remove("hidden")}
 
 function fillSelects(){
-  const employeeOptions=users
-    .slice()
-    .sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"sk"))
-    .map(x=>`<option value="${esc(employeeLabel(x))}"></option>`)
-    .join("");
-  $("employeeList").innerHTML=employeeOptions;
+  const validIds=new Set(users.map(u=>Number(u.id)));
+  selectedFilterUsers=new Set([...selectedFilterUsers].filter(id=>validIds.has(id)));
+  selectedExportUsers=new Set([...selectedExportUsers].filter(id=>validIds.has(id)));
+  if(attendanceSelectedUserId&&!validIds.has(Number(attendanceSelectedUserId)))attendanceSelectedUserId=null;
+
+  renderMultiChips("f");renderMultiChips("e");renderAttendanceUser();
 
   const lopts=locations.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("");
   const old={fLoc:$("fLoc").value,eLoc:$("eLoc").value};
   ["fLoc","eLoc"].forEach(id=>$(id).innerHTML='<option value="">Všetky</option>'+lopts);
   $("aloc").innerHTML=lopts;
   Object.entries(old).forEach(([id,v])=>{if([...$(id).options].some(o=>o.value===v))$(id).value=v});
-}
-
-function renderEmployees(){
-  $("empBody").innerHTML=users.map(x=>`<tr><td><b>${esc(x.personal_number)}</b></td><td>${esc(x.name)}</td><td>${esc(x.login)}</td><td>${esc((Array.isArray(x.location_names)&&x.location_names.length?x.location_names:[x.location_name].filter(Boolean)).join(", "))}</td><td>${x.active?'<span class="badge approved">Aktívny</span>':'<span class="badge rejected">Neaktívny</span>'}</td><td><div class="actions"><button class="ghost editEmp" data-id="${x.id}">Upraviť</button><button class="${x.active?'warn':'ok'} toggle" data-id="${x.id}">${x.active?'Deaktivovať':'Aktivovať'}</button><button class="danger delEmp" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="6" class="empty">Žiadni zamestnanci.</td></tr>';
-  document.querySelectorAll(".editEmp").forEach(b=>b.onclick=()=>openEmployee(Number(b.dataset.id)));
-  document.querySelectorAll(".toggle").forEach(b=>b.onclick=async()=>{try{await api(`/api/users/${b.dataset.id}/active`,{method:"PATCH"});await refresh()}catch(e){alert(e.message)}});
-  document.querySelectorAll(".delEmp").forEach(b=>b.onclick=async()=>{const u=users.find(x=>x.id===Number(b.dataset.id));if(!confirm(`Odstrániť zamestnanca ${u?.name||""}?\nAk má dochádzku, server odstránenie z bezpečnostných dôvodov nepovolí.`))return;try{await api(`/api/users/${b.dataset.id}`,{method:"DELETE"});await refresh()}catch(e){alert(e.message)}});
-}
-
-function renderLocations(){
-  $("locBody").innerHTML=locations.map(x=>{
-    const locShifts=shifts.filter(s=>s.location_id===x.id);
-    const shiftHtml=locShifts.length
-      ? `<div class="shift-summary">${locShifts.map(s=>`<span class="shift-pill">${esc(s.name)} ${esc(s.time_from)}–${esc(s.time_to)} · prestávka ${Number(s.break_minutes||0)} min · ${s.deduct_break===false?'platená':'odrátať'}</span>`).join("")}</div>`
-      : '<span class="muted">Bez prednastavených zmien</span>';
-    return `<tr><td><b>${esc(x.name)}</b></td><td>${esc(x.city)}</td><td>${esc(x.address)}</td><td>${x.km_enabled?'<span class="badge approved">Povolené</span>':'<span class="badge">Nie</span>'}</td><td>${shiftHtml}</td><td><div class="actions"><button class="ghost editLoc" data-id="${x.id}">Upraviť</button><button class="danger delLoc" data-id="${x.id}">Odstrániť</button></div></td></tr>`;
-  }).join("")||'<tr><td colspan="6" class="empty">Žiadne prevádzky.</td></tr>';
-  document.querySelectorAll(".editLoc").forEach(b=>b.onclick=()=>openLocation(Number(b.dataset.id)));
-  document.querySelectorAll(".delLoc").forEach(b=>b.onclick=async()=>{const l=locations.find(x=>x.id===Number(b.dataset.id));if(!confirm(`Odstrániť prevádzku ${l?.name||""}?
-Použitú prevádzku nie je možné odstrániť, kým na ňu odkazujú zamestnanci, zmeny alebo dochádzka.`))return;try{await api(`/api/locations/${b.dataset.id}`,{method:"DELETE"});await refresh()}catch(e){alert(e.message)}});
-}
-
-function billingConfirmation(x){
-  if(!x.billing_confirmed)return '<span class="badge">Nepotvrdené</span>';
-  const when=x.billing_confirmed_at?` title="Potvrdené: ${esc(x.billing_confirmed_at)}"`:"";
-  return `<span class="badge approved"${when}>Potvrdené</span>`;
 }
 function renderPending(){
   const p=attendance.filter(x=>x.status==="pending");
@@ -229,10 +288,9 @@ function renderPending(){
 async function setStatus(id,s){try{await api(`/api/attendance/${id}/status`,{method:"PATCH",body:JSON.stringify({status:s})});await refresh()}catch(e){alert(e.message)}}
 
 function renderAttendance(){
-  const userSearch=$("fUser").value,l=$("fLoc").value,fr=$("fFrom").value,to=$("fTo").value;
+  const l=$("fLoc").value,fr=$("fFrom").value,to=$("fTo").value;
   const a=attendance.filter(x=>{
-    const u=users.find(y=>Number(y.id)===Number(x.user_id));
-    const userOk=!userSearch || (u?employeeMatches(u,userSearch):(normalizeSearch(x.user_name).includes(normalizeSearch(userSearch))||normalizeSearch(x.personal_number).includes(normalizeSearch(userSearch))));
+    const userOk=selectedFilterUsers.size===0||selectedFilterUsers.has(Number(x.user_id));
     return userOk&&(!l||String(x.location_id)===l)&&(!fr||x.work_date>=fr)&&(!to||x.work_date<=to);
   });
   $("attBody").innerHTML=a.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.personal_number)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td>${Number(x.break_minutes||0)} min ${x.type==="Práca"?(x.deduct_break===false?'<span class="badge">neodrátať</span>':'<span class="badge approved">odrátať</span>'):''}</td><td>${Number(x.hours||0).toFixed(2)}</td><td>${x.km?`${Number(x.km)} km`:"—"}</td><td>${billingConfirmation(x)}</td><td>${status(x.status)}</td><td title="${esc(x.note)}">${esc((x.note||"").length>28?(x.note||"").slice(0,28)+"…":x.note||"")}</td><td><div class="actions"><button class="ghost editAtt" data-id="${x.id}">Upraviť</button><button class="danger delAtt" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="12" class="empty">Pre zvolený filter nie sú záznamy.</td></tr>';
@@ -339,14 +397,14 @@ function updateAttTimeFields(){
 function openAttendance(id=null){
   attEditId=id;$("attError").textContent="";const a=id?attendance.find(x=>x.id===id):null;$("attTitle").textContent=a?"Upraviť dochádzku":"Nový záznam";
   const today=new Date().toISOString().slice(0,10);$("adate").value=a?.work_date||today;$("atype").value=a?.type||"Práca";$("afrom").value=a?.time_from||"08:00";$("ato").value=a?.time_to||"16:00";$("abreak").value=String(a?.break_minutes??30);$("adeduct").checked=a?.deduct_break!==false;$("akm").value=String(a?.km??0);$("anote").value=a?.note||"";$("astatus").value=a?.status||"approved";$("astatus").disabled=!a;
-  const selectedUser=a?.user_id?users.find(x=>Number(x.id)===Number(a.user_id)):users[0];
-  $("auser").value=selectedUser?employeeLabel(selectedUser):"";
+  attendanceSelectedUserId=a?.user_id?Number(a.user_id):(users[0]?Number(users[0].id):null);
+  renderAttendanceUser();
   if(a?.location_id&&[...$("aloc").options].some(o=>Number(o.value)===a.location_id))$("aloc").value=String(a.location_id);else if(locations.length)$("aloc").value=String(locations[0].id);
   updateAttTimeFields();$("attDialog").showModal();
 }
 async function saveAttendance(){
   $("attError").textContent="";try{
-    const selectedUser=resolveEmployee($("auser").value);
+    const selectedUser=users.find(x=>Number(x.id)===Number(attendanceSelectedUserId));
     if(!selectedUser){$("attError").textContent="Vyber konkrétneho zamestnanca podľa mena alebo osobného čísla.";return}
     const type=$("atype").value;const body={work_date:$("adate").value,user_id:Number(selectedUser.id),location_id:Number($("aloc").value),type,time_from:(type==="Práca"||type==="Lekár")?($("afrom").value||null):null,time_to:(type==="Práca"||type==="Lekár")?($("ato").value||null):null,break_minutes:type==="Práca"?Number($("abreak").value||0):0,deduct_break:type==="Práca"?$("adeduct").checked:false,km:type==="Práca"&&selectedAdminLocationKmEnabled()?Number($("akm").value||0):0,note:$("anote").value.trim()};if(attEditId)body.status=$("astatus").value;
     await api(attEditId?`/api/attendance/${attEditId}`:"/api/attendance",{method:attEditId?"PATCH":"POST",body:JSON.stringify(body)});$("attDialog").close();await refresh();
@@ -358,17 +416,26 @@ $("loginBtn").onclick=login;$("password").onkeydown=e=>{if(e.key==="Enter")login
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.add("hidden"));$(b.dataset.tab).classList.remove("hidden");document.querySelectorAll("[data-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active")});
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).close());
 $("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("saveLoc").onclick=saveLocation;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;$("aloc").onchange=updateAttTimeFields;$("addLocShift").onclick=()=>{locShiftDraft.push(newShiftDraft());renderLocShiftRows()};
-["fFrom","fTo","fUser","fLoc"].forEach(id=>$(id).oninput=renderAttendance);
-["fUser","eUser","auser"].forEach(id=>$(id).addEventListener("blur",()=>{const u=resolveEmployee($(id).value);if(u)$(id).value=employeeLabel(u)}));
+["fFrom","fTo","fLoc"].forEach(id=>$(id).oninput=renderAttendance);
+
+$("fUserSearch").onfocus=()=>showMultiResults("f");
+$("fUserSearch").oninput=()=>showMultiResults("f");
+$("eUserSearch").onfocus=()=>showMultiResults("e");
+$("eUserSearch").oninput=()=>showMultiResults("e");
+$("aUserSearch").onfocus=showAttendanceUserResults;
+$("aUserSearch").oninput=showAttendanceUserResults;
+
+document.addEventListener("click",e=>{
+  if(!$("fUserPicker").contains(e.target))hideMultiResults("f");
+  if(!$("eUserPicker").contains(e.target))hideMultiResults("e");
+  if(!$("aUserPicker").contains(e.target))$("aUserResults").classList.add("hidden");
+});
+
 function exportQuery(){
   const q=new URLSearchParams();
   if($("eFrom").value)q.set("date_from",$("eFrom").value);
   if($("eTo").value)q.set("date_to",$("eTo").value);
-  if($("eUser").value.trim()){
-    const u=resolveEmployee($("eUser").value);
-    if(!u)throw new Error("Vyber konkrétneho zamestnanca zo zoznamu podľa mena alebo osobného čísla.");
-    q.set("user_id",String(u.id));
-  }
+  if(selectedExportUsers.size)q.set("user_ids",[...selectedExportUsers].sort((a,b)=>a-b).join(","));
   if($("eLoc").value)q.set("location_id",$("eLoc").value);
   return q.toString()
 }
