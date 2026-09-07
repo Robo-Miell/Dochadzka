@@ -284,6 +284,53 @@ function fillSelects(){
   $("aloc").innerHTML=lopts;
   Object.entries(old).forEach(([id,v])=>{if([...$(id).options].some(o=>o.value===v))$(id).value=v});
 }
+
+function renderEmployees(){
+  $("empBody").innerHTML=users.map(x=>`<tr><td><b>${esc(x.personal_number)}</b></td><td>${esc(x.name)}</td><td>${esc(x.login)}</td><td>${esc((Array.isArray(x.location_names)&&x.location_names.length?x.location_names:[x.location_name].filter(Boolean)).join(", "))}</td><td>${x.active?'<span class="badge approved">Aktívny</span>':'<span class="badge rejected">Neaktívny</span>'}</td><td><div class="actions"><button class="ghost editEmp" data-id="${x.id}">Upraviť</button><button class="${x.active?'warn':'ok'} toggle" data-id="${x.id}">${x.active?'Deaktivovať':'Aktivovať'}</button><button class="danger delEmp" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="6" class="empty">Žiadni zamestnanci.</td></tr>';
+
+  document.querySelectorAll(".editEmp").forEach(b=>b.onclick=()=>openEmployee(Number(b.dataset.id)));
+  document.querySelectorAll(".toggle").forEach(b=>b.onclick=async()=>{
+    try{
+      await api(`/api/users/${b.dataset.id}/active`,{method:"PATCH"});
+      await refresh()
+    }catch(e){alert(e.message)}
+  });
+  document.querySelectorAll(".delEmp").forEach(b=>b.onclick=async()=>{
+    const u=users.find(x=>x.id===Number(b.dataset.id));
+    if(!confirm(`Odstrániť zamestnanca ${u?.name||""}?\nAk má dochádzku, server odstránenie z bezpečnostných dôvodov nepovolí.`))return;
+    try{
+      await api(`/api/users/${b.dataset.id}`,{method:"DELETE"});
+      await refresh()
+    }catch(e){alert(e.message)}
+  });
+}
+
+function renderLocations(){
+  $("locBody").innerHTML=locations.map(x=>{
+    const locShifts=shifts.filter(s=>s.location_id===x.id);
+    const shiftHtml=locShifts.length
+      ? `<div class="shift-summary">${locShifts.map(s=>`<span class="shift-pill">${esc(s.name)} ${esc(s.time_from)}–${esc(s.time_to)} · prestávka ${Number(s.break_minutes||0)} min · ${s.deduct_break===false?'platená':'odrátať'}</span>`).join("")}</div>`
+      : '<span class="muted">Bez prednastavených zmien</span>';
+    return `<tr><td><b>${esc(x.name)}</b></td><td>${esc(x.city)}</td><td>${esc(x.address)}</td><td>${x.km_enabled?'<span class="badge approved">Povolené</span>':'<span class="badge">Nie</span>'}</td><td>${shiftHtml}</td><td><div class="actions"><button class="ghost editLoc" data-id="${x.id}">Upraviť</button><button class="danger delLoc" data-id="${x.id}">Odstrániť</button></div></td></tr>`;
+  }).join("")||'<tr><td colspan="6" class="empty">Žiadne prevádzky.</td></tr>';
+
+  document.querySelectorAll(".editLoc").forEach(b=>b.onclick=()=>openLocation(Number(b.dataset.id)));
+  document.querySelectorAll(".delLoc").forEach(b=>b.onclick=async()=>{
+    const l=locations.find(x=>x.id===Number(b.dataset.id));
+    if(!confirm(`Odstrániť prevádzku ${l?.name||""}?\nPoužitú prevádzku nie je možné odstrániť, kým na ňu odkazujú zamestnanci, zmeny alebo dochádzka.`))return;
+    try{
+      await api(`/api/locations/${b.dataset.id}`,{method:"DELETE"});
+      await refresh()
+    }catch(e){alert(e.message)}
+  });
+}
+
+function billingConfirmation(x){
+  if(!x.billing_confirmed)return '<span class="badge">Nepotvrdené</span>';
+  const when=x.billing_confirmed_at?` title="Potvrdené: ${esc(x.billing_confirmed_at)}"`:"";
+  return `<span class="badge approved"${when}>Potvrdené</span>`;
+}
+
 function renderPending(){
   const p=attendance.filter(x=>x.status==="pending");
   $("pendingBody").innerHTML=p.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td>${x.km?`${Number(x.km)} km`:"—"}</td><td>${billingConfirmation(x)}</td><td><div class="actions"><button class="ok approve" data-id="${x.id}">Schváliť</button><button class="danger reject" data-id="${x.id}">Zamietnuť</button><button class="ghost editPending" data-id="${x.id}">Upraviť</button></div></td></tr>`).join("")||'<tr><td colspan="8" class="empty">Žiadne čakajúce záznamy.</td></tr>';
@@ -299,7 +346,7 @@ function renderAttendance(){
     const userOk=selectedFilterUsers.size===0||selectedFilterUsers.has(Number(x.user_id));
     return userOk&&(!l||String(x.location_id)===l)&&(!fr||x.work_date>=fr)&&(!to||x.work_date<=to);
   });
-  $("attBody").innerHTML=a.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.personal_number)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td>${Number(x.break_minutes||0)} min ${x.type==="Práca"?(x.deduct_break===false?'<span class="badge">neodrátať</span>':'<span class="badge approved">odrátať</span>'):''}</td><td>${Number(x.hours||0).toFixed(2)}</td><td>${x.km?`${Number(x.km)} km`:"—"}</td><td>${billingConfirmation(x)}</td><td>${status(x.status)}</td><td title="${esc(x.note)}">${esc((x.note||"").length>28?(x.note||"").slice(0,28)+"…":x.note||"")}</td><td><div class="actions"><button class="ghost editAtt" data-id="${x.id}">Upraviť</button><button class="danger delAtt" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="12" class="empty">Pre zvolený filter nie sú záznamy.</td></tr>';
+  $("attBody").innerHTML=a.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.personal_number)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td>${Number(x.break_minutes||0)} min ${x.type==="Práca"?(x.deduct_break===false?'<span class="badge">neodrátať</span>':'<span class="badge approved">odrátať</span>'):''}</td><td>${Number(x.hours||0).toFixed(2)}</td><td>${x.km?`${Number(x.km)} km`:"—"}</td><td>${billingConfirmation(x)}</td><td>${status(x.status)}</td><td title="${esc(x.note)}">${esc((x.note||"").length>28?(x.note||"").slice(0,28)+"…":x.note||"")}</td><td><div class="actions"><button class="ghost editAtt" data-id="${x.id}">Upraviť</button><button class="danger delAtt" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="13" class="empty">Pre zvolený filter nie sú záznamy.</td></tr>';
   document.querySelectorAll(".editAtt").forEach(b=>b.onclick=()=>openAttendance(Number(b.dataset.id)));
   document.querySelectorAll(".delAtt").forEach(b=>b.onclick=()=>deleteAttendance(Number(b.dataset.id)));
 }
