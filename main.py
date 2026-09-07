@@ -76,7 +76,7 @@ class Location(Base):
 
     reporting_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     reporting_recipients: Mapped[str] = mapped_column(Text, default="")
-    reporting_frequency: Mapped[str] = mapped_column(String(20), default="monthly")
+    reporting_frequency: Mapped[str] = mapped_column(String(20), default="daily")
     reporting_weekday: Mapped[int] = mapped_column(Integer, default=0)
     reporting_monthday: Mapped[int] = mapped_column(Integer, default=1)
     reporting_time: Mapped[str] = mapped_column(String(5), default="08:00")
@@ -157,7 +157,7 @@ class LocationIn(BaseModel):
     km_enabled: bool = False
     reporting_enabled: bool = False
     reporting_recipients: str = ""
-    reporting_frequency: str = "monthly"
+    reporting_frequency: str = "daily"
     reporting_weekday: int = 0
     reporting_monthday: int = 1
     reporting_time: str = "08:00"
@@ -189,7 +189,7 @@ class LocationOut(BaseModel):
     km_enabled: bool = False
     reporting_enabled: bool = False
     reporting_recipients: str = ""
-    reporting_frequency: str = "monthly"
+    reporting_frequency: str = "daily"
     reporting_weekday: int = 0
     reporting_monthday: int = 1
     reporting_time: str = "08:00"
@@ -272,7 +272,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.10")
+app = FastAPI(title="Dochádzka API", version="5.11")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -431,9 +431,9 @@ def normalized_reporting_config(
     formats: Optional[str],
     only_approved: bool,
 ):
-    frequency = (frequency or "monthly").strip().lower()
-    if frequency not in VALID_REPORTING_FREQUENCIES:
-        raise HTTPException(400, "Neplatná frekvencia reportingu")
+    # v5.11: automatický reporting je vždy denný a posiela predchádzajúci deň.
+    # Hodnoty weekly/monthly ostávajú v schéme iba kvôli spätnej kompatibilite.
+    frequency = "daily"
 
     report_time = validate_time(report_time or "08:00", "Čas reportu")
     if report_time is None:
@@ -570,7 +570,7 @@ def ensure_schema_columns():
             ("km_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
             ("reporting_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
             ("reporting_recipients", "TEXT NOT NULL DEFAULT ''"),
-            ("reporting_frequency", "VARCHAR(20) NOT NULL DEFAULT 'monthly'"),
+            ("reporting_frequency", "VARCHAR(20) NOT NULL DEFAULT 'daily'"),
             ("reporting_weekday", "INTEGER NOT NULL DEFAULT 0"),
             ("reporting_monthday", "INTEGER NOT NULL DEFAULT 1"),
             ("reporting_time", "VARCHAR(5) NOT NULL DEFAULT '08:00'"),
@@ -598,6 +598,10 @@ def ensure_schema_columns():
             for column_name, ddl in columns:
                 if column_name not in existing:
                     conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl}"))
+
+        # v5.11: všetky existujúce prevádzky prepneme na denný reporting.
+        # Staré nastavenia weekly/monthly sa už nepoužívajú.
+        conn.execute(text("UPDATE locations SET reporting_frequency='daily' WHERE reporting_frequency IS NULL OR reporting_frequency <> 'daily'"))
 
 
 @app.on_event("startup")
@@ -634,7 +638,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.10", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "5.11", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -1596,23 +1600,13 @@ def my_attendance_pdf(
 
 
 def reporting_period(frequency: str, today: date):
-    if frequency == "daily":
-        d = today - timedelta(days=1)
-        return d, d
-    if frequency == "weekly":
-        current_monday = today - timedelta(days=today.weekday())
-        end = current_monday - timedelta(days=1)
-        start = end - timedelta(days=6)
-        return start, end
-
-    first_this_month = today.replace(day=1)
-    end = first_this_month - timedelta(days=1)
-    start = end.replace(day=1)
-    return start, end
+    # v5.11: bez ohľadu na historické nastavenie frekvencie posielame vždy včerajšok.
+    d = today - timedelta(days=1)
+    return d, d
 
 
 def reporting_period_key(location: Location, date_from: date, date_to: date) -> str:
-    return f"{location.reporting_frequency}:{date_from.isoformat()}:{date_to.isoformat()}"
+    return f"daily:{date_from.isoformat()}"
 
 
 def reporting_due(location: Location, now_local: datetime):
@@ -1626,12 +1620,7 @@ def reporting_due(location: Location, now_local: datetime):
     if (now_local.hour, now_local.minute) < (hh, mm):
         return None
 
-    if location.reporting_frequency == "weekly" and now_local.weekday() != int(location.reporting_weekday or 0):
-        return None
-    if location.reporting_frequency == "monthly" and now_local.day != int(location.reporting_monthday or 1):
-        return None
-
-    date_from, date_to = reporting_period(location.reporting_frequency, now_local.date())
+    date_from, date_to = reporting_period("daily", now_local.date())
     period_key = reporting_period_key(location, date_from, date_to)
     if location.reporting_last_period == period_key:
         return None
@@ -1776,6 +1765,30 @@ def send_location_report(
         location_id=location.id,
         only_approved=bool(location.reporting_only_approved),
     )
+    # Ak za daný deň nie je pre túto prevádzku žiadny záznam, e-mail sa neposiela.
+    # Pri plánovanom behu si obdobie označíme ako spracované, aby sa kontrola neopakovala
+    # každých 15 minút počas celého dňa.
+    if not rows:
+        location.reporting_last_sent_at = datetime.utcnow()
+        location.reporting_last_status = "skipped"
+        location.reporting_last_error = "Bez údajov za predchádzajúci deň – report neodoslaný."
+        if scheduled and period_key:
+            location.reporting_last_period = period_key
+        session.commit()
+        return {
+            "ok": True,
+            "sent": False,
+            "skipped": True,
+            "reason": "no_data",
+            "location_id": location.id,
+            "location_name": location.name,
+            "recipients": recipients,
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+            "formats": formats,
+            "rows": 0,
+        }
+
     user_label = "Všetci zamestnanci"
     location_label = location.name
     base = safe_report_filename(location.name)
@@ -1809,6 +1822,8 @@ def send_location_report(
 
     return {
         "ok": True,
+        "sent": True,
+        "skipped": False,
         "location_id": location.id,
         "location_name": location.name,
         "recipients": recipients,
@@ -1828,7 +1843,7 @@ def send_report_now(
     location = session.get(Location, location_id)
     if not location:
         raise HTTPException(404, "Prevádzka neexistuje")
-    date_from, date_to = reporting_period(location.reporting_frequency, date.today())
+    date_from, date_to = reporting_period("daily", date.today())
     try:
         return send_location_report(session, location, date_from, date_to, scheduled=False)
     except HTTPException:
@@ -1857,6 +1872,7 @@ def run_due_reporting(
         now_local = datetime.utcnow()
 
     sent = []
+    skipped = []
     errors = []
     locations = session.scalars(
         select(Location).where(Location.reporting_enabled == True).order_by(Location.id)
@@ -1876,7 +1892,10 @@ def run_due_reporting(
                 scheduled=True,
                 period_key=period_key,
             )
-            sent.append(result)
+            if result.get("skipped"):
+                skipped.append(result)
+            else:
+                sent.append(result)
         except Exception as exc:
             location.reporting_last_sent_at = datetime.utcnow()
             location.reporting_last_status = "error"
@@ -1889,6 +1908,7 @@ def run_due_reporting(
         "checked_at": now_local.isoformat(),
         "timezone": REPORTING_TIMEZONE,
         "sent": sent,
+        "skipped": skipped,
         "errors": errors,
     }
 
