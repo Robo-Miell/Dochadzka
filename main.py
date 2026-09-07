@@ -1512,7 +1512,12 @@ def build_admin_xls(
     ws.write(end_row, 3, f"Evidované hodiny spolu: {all_hours:.2f}", summary_style)
     ws.write(end_row, 4, f"KM spolu: {sum(int(a.km or 0) for a in rows)}", summary_style)
 
-    widths = [13, 16, 24, 22, 18, 9, 9, 15, 20, 18, 10, 20, 22, 22, 42]
+    # Stĺpec D (Prevádzka) prispôsob šírke najdlhšieho názvu prevádzky,
+    # aby bol celý názov v XLS exporte čitateľný.
+    location_col_width = max(30, max((len(a.location.name or "") for a in rows), default=0) + 3)
+    location_col_width = min(80, location_col_width)
+
+    widths = [13, 16, 24, location_col_width, 18, 9, 9, 15, 20, 18, 10, 20, 22, 22, 42]
     for i, w in enumerate(widths):
         ws.col(i).width = min(255, w) * 256
     ws.panes_frozen = True
