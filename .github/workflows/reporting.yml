@@ -1,0 +1,28 @@
+name: Scheduled attendance reports
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: attendance-reporting
+  cancel-in-progress: false
+
+jobs:
+  trigger-reporting:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger due reports
+        env:
+          REPORTING_JOB_SECRET: ${{ secrets.REPORTING_JOB_SECRET }}
+        run: |
+          if [ -z "$REPORTING_JOB_SECRET" ]; then
+            echo "Missing GitHub secret REPORTING_JOB_SECRET"
+            exit 1
+          fi
+
+          curl --fail-with-body             --max-time 180             --retry 2             --retry-delay 15             -X POST             -H "X-Reporting-Secret: $REPORTING_JOB_SECRET"             "https://dochadzka1.onrender.com/api/reporting/run-due"
