@@ -21,6 +21,10 @@
 .employee-result:last-child{border-bottom:0}.employee-result:hover,.employee-result.active{background:#e8f1ff}
 .employee-result-name{font-weight:700}.employee-result-number{color:var(--muted);font-variant-numeric:tabular-nums}
 .employee-picker-empty{padding:12px;color:var(--muted);font-size:13px}
+.reporting-editor{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.reporting-box{background:#f8faf8;border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:10px}
+.report-status{padding:9px 10px;border-radius:10px;background:#fff;border:1px solid var(--line);font-size:13px}
+.format-checks{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px}.format-checks label{display:flex;align-items:center;gap:6px;margin:0;font-weight:600}
 @media(max-width:850px){.stats,.grid3{grid-template-columns:1fr 1fr}.wrap{padding:12px}.brand-small{height:36px}.brandrow h2{font-size:20px}}@media(max-width:520px){.stats,.grid,.grid3{grid-template-columns:1fr}.top{align-items:flex-start}.brandrow{align-items:flex-start}.brand-small{display:none}.actions{min-width:150px}.shift-editor-row{grid-template-columns:1fr 1fr}.shift-editor-row .shift-name,.shift-editor-row .shift-deduct,.shift-editor-row .shift-remove{grid-column:1/-1}}
 </style>
 </head>
@@ -65,7 +69,7 @@
 
     <div id="locations" class="tab hidden">
       <div class="top"><div><h3>Prevádzky</h3><div class="muted">Pri každej prevádzke upravíš údaje aj prednastavené pracovné zmeny na jednom mieste.</div></div><button id="newLocation" class="primary">+ Prevádzka</button></div>
-      <div class="table"><table><thead><tr><th>Názov</th><th>Mesto</th><th>Adresa</th><th>KM</th><th>Prednastavené zmeny</th><th>Akcie</th></tr></thead><tbody id="locBody"></tbody></table></div>
+      <div class="table"><table><thead><tr><th>Názov</th><th>Mesto</th><th>Adresa</th><th>KM</th><th>Prednastavené zmeny</th><th>Reporting</th><th>Akcie</th></tr></thead><tbody id="locBody"></tbody></table></div>
     </div>
 
     <div id="attendance" class="tab hidden">
@@ -143,7 +147,40 @@
     <div id="locShiftRows"></div>
   </div>
 
-  <p id="locError" class="error"></p><button id="saveLoc" class="primary" style="margin-top:12px">Uložiť prevádzku a zmeny</button>
+  <div class="reporting-editor">
+    <h3 style="margin-bottom:3px">Automatický reporting</h3>
+    <div class="hint">Report sa posiela z Gmail účtu nastaveného na serveri. Časy sú podľa Europe/Bratislava. Automatické odoslanie môže mať niekoľkominútové oneskorenie.</div>
+    <div class="reporting-box">
+      <div class="checkline"><input id="lreportenabled" type="checkbox"><label for="lreportenabled" style="margin:0">Povoliť automatický reporting</label></div>
+
+      <label>Príjemcovia</label>
+      <textarea id="lreportrecipients" placeholder="quality@firma.sk&#10;manager@firma.sk"></textarea>
+      <div class="hint">Viac adries oddeľ čiarkou, bodkočiarkou alebo novým riadkom.</div>
+
+      <div class="grid3">
+        <div><label>Frekvencia</label><select id="lreportfrequency"><option value="daily">Denne</option><option value="weekly">Týždenne</option><option value="monthly">Mesačne</option></select></div>
+        <div id="lreportweekdaywrap"><label>Deň v týždni</label><select id="lreportweekday"><option value="0">Pondelok</option><option value="1">Utorok</option><option value="2">Streda</option><option value="3">Štvrtok</option><option value="4">Piatok</option><option value="5">Sobota</option><option value="6">Nedeľa</option></select></div>
+        <div id="lreportmonthdaywrap"><label>Deň v mesiaci</label><input id="lreportmonthday" type="number" min="1" max="28" value="1"></div>
+        <div><label>Čas odoslania</label><input id="lreporttime" type="time" value="08:00"></div>
+      </div>
+
+      <label>Formát reportu</label>
+      <div class="format-checks">
+        <label><input id="lreportpdf" type="checkbox" checked> PDF</label>
+        <label><input id="lreportxls" type="checkbox" checked> XLS</label>
+      </div>
+
+      <div class="checkline"><input id="lreportapproved" type="checkbox" checked><label for="lreportapproved" style="margin:0">Posielať iba schválenú dochádzku</label></div>
+
+      <div id="lreportstatus" class="report-status" style="margin-top:12px">Zatiaľ nebol odoslaný žiadny report.</div>
+      <div class="row" style="margin-top:10px">
+        <button id="sendReportNow" type="button" class="ok">Odoslať report teraz</button>
+        <span class="hint">Tlačidlo odošle report za predchádzajúce obdobie podľa zvolenej frekvencie.</span>
+      </div>
+    </div>
+  </div>
+
+  <p id="locError" class="error"></p><button id="saveLoc" class="primary" style="margin-top:12px">Uložiť prevádzku, zmeny a reporting</button>
 </div></dialog>
 
 <dialog id="attDialog"><div class="modal">
@@ -311,8 +348,11 @@ function renderLocations(){
     const shiftHtml=locShifts.length
       ? `<div class="shift-summary">${locShifts.map(s=>`<span class="shift-pill">${esc(s.name)} ${esc(s.time_from)}–${esc(s.time_to)} · prestávka ${Number(s.break_minutes||0)} min · ${s.deduct_break===false?'platená':'odrátať'}</span>`).join("")}</div>`
       : '<span class="muted">Bez prednastavených zmien</span>';
-    return `<tr><td><b>${esc(x.name)}</b></td><td>${esc(x.city)}</td><td>${esc(x.address)}</td><td>${x.km_enabled?'<span class="badge approved">Povolené</span>':'<span class="badge">Nie</span>'}</td><td>${shiftHtml}</td><td><div class="actions"><button class="ghost editLoc" data-id="${x.id}">Upraviť</button><button class="danger delLoc" data-id="${x.id}">Odstrániť</button></div></td></tr>`;
-  }).join("")||'<tr><td colspan="6" class="empty">Žiadne prevádzky.</td></tr>';
+    const reportHtml=x.reporting_enabled
+      ? `<span class="badge approved">Zapnutý</span><div class="muted" style="margin-top:5px">${reportFrequencyText(x)} · ${esc(x.reporting_time||"08:00")}</div>`
+      : '<span class="badge">Vypnutý</span>';
+    return `<tr><td><b>${esc(x.name)}</b></td><td>${esc(x.city)}</td><td>${esc(x.address)}</td><td>${x.km_enabled?'<span class="badge approved">Povolené</span>':'<span class="badge">Nie</span>'}</td><td>${shiftHtml}</td><td>${reportHtml}</td><td><div class="actions"><button class="ghost editLoc" data-id="${x.id}">Upraviť</button><button class="danger delLoc" data-id="${x.id}">Odstrániť</button></div></td></tr>`;
+  }).join("")||'<tr><td colspan="7" class="empty">Žiadne prevádzky.</td></tr>';
 
   document.querySelectorAll(".editLoc").forEach(b=>b.onclick=()=>openLocation(Number(b.dataset.id)));
   document.querySelectorAll(".delLoc").forEach(b=>b.onclick=async()=>{
@@ -376,6 +416,70 @@ async function saveEmployee(){
   }catch(e){$("empError").textContent=e.message}
 }
 
+function reportFrequencyText(l){
+  if(l.reporting_frequency==="daily")return "Denne";
+  if(l.reporting_frequency==="weekly"){
+    const days=["Po","Ut","St","Št","Pi","So","Ne"];
+    return `Týždenne · ${days[Number(l.reporting_weekday||0)]||"Po"}`;
+  }
+  return `Mesačne · ${Number(l.reporting_monthday||1)}. deň`;
+}
+function updateReportingVisibility(){
+  const f=$("lreportfrequency").value;
+  $("lreportweekdaywrap").classList.toggle("hidden",f!=="weekly");
+  $("lreportmonthdaywrap").classList.toggle("hidden",f!=="monthly");
+}
+function renderReportingStatus(l){
+  if(!l||!l.reporting_last_sent_at){
+    $("lreportstatus").textContent="Zatiaľ nebol odoslaný žiadny report.";
+    return;
+  }
+  const stamp=new Date(l.reporting_last_sent_at+"Z");
+  const when=Number.isNaN(stamp.getTime())?l.reporting_last_sent_at:stamp.toLocaleString("sk-SK");
+  if(l.reporting_last_status==="sent"){
+    $("lreportstatus").innerHTML=`<span class="badge approved">Odoslané</span> ${esc(when)}`;
+  }else{
+    $("lreportstatus").innerHTML=`<span class="badge rejected">Chyba</span> ${esc(when)}${l.reporting_last_error?` · ${esc(l.reporting_last_error)}`:""}`;
+  }
+}
+function reportingFormatsValue(){
+  const f=[];
+  if($("lreportpdf").checked)f.push("pdf");
+  if($("lreportxls").checked)f.push("xls");
+  return f.join(",");
+}
+function reportingBody(){
+  return {
+    reporting_enabled:$("lreportenabled").checked,
+    reporting_recipients:$("lreportrecipients").value.trim(),
+    reporting_frequency:$("lreportfrequency").value,
+    reporting_weekday:Number($("lreportweekday").value||0),
+    reporting_monthday:Number($("lreportmonthday").value||1),
+    reporting_time:$("lreporttime").value||"08:00",
+    reporting_formats:reportingFormatsValue(),
+    reporting_only_approved:$("lreportapproved").checked
+  };
+}
+async function sendReportNow(){
+  $("locError").textContent="";
+  if(!locEditId){$("locError").textContent="Najprv ulož novú prevádzku.";return}
+  try{
+    const report=reportingBody();
+    if(!report.reporting_recipients)throw new Error("Zadaj aspoň jedného príjemcu reportu");
+    if(!report.reporting_formats)throw new Error("Vyber PDF alebo XLS");
+
+    await api(`/api/locations/${locEditId}`,{method:"PATCH",body:JSON.stringify(report)});
+    $("sendReportNow").disabled=true;
+    $("sendReportNow").textContent="Odosielam…";
+    const result=await api(`/api/locations/${locEditId}/report/send-now`,{method:"POST"});
+    alert(`Report bol odoslaný na: ${result.recipients.join(", ")}`);
+    await refresh();
+    const fresh=locations.find(x=>Number(x.id)===Number(locEditId));
+    renderReportingStatus(fresh);
+  }catch(e){$("locError").textContent=e.message}
+  finally{$("sendReportNow").disabled=false;$("sendReportNow").textContent="Odoslať report teraz"}
+}
+
 function newShiftDraft(){return {id:null,name:"",time_from:"06:00",time_to:"14:00",break_minutes:30,deduct_break:true}}
 
 function renderLocShiftRows(){
@@ -406,6 +510,17 @@ function openLocation(id=null){
   const l=id?locations.find(x=>x.id===id):null;
   $("locTitle").textContent=l?"Upraviť prevádzku":"Nová prevádzka";
   $("lname").value=l?.name||"";$("lcity").value=l?.city||"";$("laddr").value=l?.address||"";$("lkmenabled").checked=l?.km_enabled===true;
+  $("lreportenabled").checked=l?.reporting_enabled===true;
+  $("lreportrecipients").value=l?.reporting_recipients||"";
+  $("lreportfrequency").value=l?.reporting_frequency||"monthly";
+  $("lreportweekday").value=String(l?.reporting_weekday??0);
+  $("lreportmonthday").value=String(l?.reporting_monthday??1);
+  $("lreporttime").value=l?.reporting_time||"08:00";
+  const fmts=new Set(String(l?.reporting_formats||"pdf,xls").split(","));
+  $("lreportpdf").checked=fmts.has("pdf");$("lreportxls").checked=fmts.has("xls");
+  $("lreportapproved").checked=l?.reporting_only_approved!==false;
+  updateReportingVisibility();renderReportingStatus(l);
+  $("sendReportNow").disabled=!id;
   locShiftDraft=id
     ? shifts.filter(x=>x.location_id===id).map(x=>({id:x.id,name:x.name,time_from:x.time_from,time_to:x.time_to,break_minutes:Number(x.break_minutes||0),deduct_break:x.deduct_break!==false}))
     : [];
@@ -415,8 +530,10 @@ function openLocation(id=null){
 async function saveLocation(){
   $("locError").textContent="";
   try{
-    const body={name:$("lname").value.trim(),city:$("lcity").value.trim(),address:$("laddr").value.trim(),km_enabled:$("lkmenabled").checked};
+    const body={name:$("lname").value.trim(),city:$("lcity").value.trim(),address:$("laddr").value.trim(),km_enabled:$("lkmenabled").checked,...reportingBody()};
     if(!body.name)throw new Error("Názov prevádzky je povinný");
+    if(body.reporting_enabled&&!body.reporting_recipients)throw new Error("Pri automatickom reportingu zadaj aspoň jedného príjemcu");
+    if(body.reporting_enabled&&!body.reporting_formats)throw new Error("Pri automatickom reportingu vyber PDF alebo XLS");
 
     const activeRows=locShiftDraft.filter(s=>s.name.trim()||s.time_from||s.time_to);
     for(const s of activeRows){
@@ -468,7 +585,7 @@ async function deleteAttendance(id){const a=attendance.find(x=>x.id===id);if(!co
 $("loginBtn").onclick=login;$("password").onkeydown=e=>{if(e.key==="Enter")login()};$("logout").onclick=()=>{localStorage.removeItem("dochadzka_token");location.reload()};
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.add("hidden"));$(b.dataset.tab).classList.remove("hidden");document.querySelectorAll("[data-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active")});
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).close());
-$("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("saveLoc").onclick=saveLocation;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;$("aloc").onchange=updateAttTimeFields;$("addLocShift").onclick=()=>{locShiftDraft.push(newShiftDraft());renderLocShiftRows()};
+$("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("saveLoc").onclick=saveLocation;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;$("aloc").onchange=updateAttTimeFields;$("addLocShift").onclick=()=>{locShiftDraft.push(newShiftDraft());renderLocShiftRows()};$("lreportfrequency").onchange=updateReportingVisibility;$("sendReportNow").onclick=sendReportNow;
 ["fFrom","fTo","fLoc"].forEach(id=>$(id).oninput=renderAttendance);
 
 $("fUserSearch").onfocus=()=>showMultiResults("f");
