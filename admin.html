@@ -158,9 +158,13 @@
       <div class="hint">Viac adries oddeľ čiarkou, bodkočiarkou alebo novým riadkom.</div>
 
       <div class="grid3">
-        <div><label>Frekvencia</label><select id="lreportfrequency"><option value="daily">Denne</option><option value="weekly">Týždenne</option><option value="monthly">Mesačne</option></select></div>
-        <div id="lreportweekdaywrap"><label>Deň v týždni</label><select id="lreportweekday"><option value="0">Pondelok</option><option value="1">Utorok</option><option value="2">Streda</option><option value="3">Štvrtok</option><option value="4">Piatok</option><option value="5">Sobota</option><option value="6">Nedeľa</option></select></div>
-        <div id="lreportmonthdaywrap"><label>Deň v mesiaci</label><input id="lreportmonthday" type="number" min="1" max="28" value="1"></div>
+        <div>
+          <label>Frekvencia</label>
+          <div class="hint" style="padding-top:10px"><strong>Denne</strong> – vždy za predchádzajúci kalendárny deň.</div>
+          <input id="lreportfrequency" type="hidden" value="daily">
+          <input id="lreportweekday" type="hidden" value="0">
+          <input id="lreportmonthday" type="hidden" value="1">
+        </div>
         <div><label>Čas odoslania</label><input id="lreporttime" type="time" value="08:00"></div>
       </div>
 
@@ -175,7 +179,7 @@
       <div id="lreportstatus" class="report-status" style="margin-top:12px">Zatiaľ nebol odoslaný žiadny report.</div>
       <div class="row" style="margin-top:10px">
         <button id="sendReportNow" type="button" class="ok">Odoslať report teraz</button>
-        <span class="hint">Tlačidlo odošle report za predchádzajúce obdobie podľa zvolenej frekvencie.</span>
+        <span class="hint">Tlačidlo odošle report za predchádzajúci deň. Ak prevádzka nemá žiadne údaje, e-mail sa neodošle.</span>
       </div>
     </div>
   </div>
@@ -417,18 +421,9 @@ async function saveEmployee(){
 }
 
 function reportFrequencyText(l){
-  if(l.reporting_frequency==="daily")return "Denne";
-  if(l.reporting_frequency==="weekly"){
-    const days=["Po","Ut","St","Št","Pi","So","Ne"];
-    return `Týždenne · ${days[Number(l.reporting_weekday||0)]||"Po"}`;
-  }
-  return `Mesačne · ${Number(l.reporting_monthday||1)}. deň`;
+  return "Denne · predchádzajúci deň";
 }
-function updateReportingVisibility(){
-  const f=$("lreportfrequency").value;
-  $("lreportweekdaywrap").classList.toggle("hidden",f!=="weekly");
-  $("lreportmonthdaywrap").classList.toggle("hidden",f!=="monthly");
-}
+function updateReportingVisibility(){}
 function renderReportingStatus(l){
   if(!l||!l.reporting_last_sent_at){
     $("lreportstatus").textContent="Zatiaľ nebol odoslaný žiadny report.";
@@ -438,6 +433,8 @@ function renderReportingStatus(l){
   const when=Number.isNaN(stamp.getTime())?l.reporting_last_sent_at:stamp.toLocaleString("sk-SK");
   if(l.reporting_last_status==="sent"){
     $("lreportstatus").innerHTML=`<span class="badge approved">Odoslané</span> ${esc(when)}`;
+  }else if(l.reporting_last_status==="skipped"){
+    $("lreportstatus").innerHTML=`<span class="badge pending">Neodoslané</span> ${esc(when)} · za predchádzajúci deň neboli žiadne údaje`;
   }else{
     $("lreportstatus").innerHTML=`<span class="badge rejected">Chyba</span> ${esc(when)}${l.reporting_last_error?` · ${esc(l.reporting_last_error)}`:""}`;
   }
@@ -452,7 +449,7 @@ function reportingBody(){
   return {
     reporting_enabled:$("lreportenabled").checked,
     reporting_recipients:$("lreportrecipients").value.trim(),
-    reporting_frequency:$("lreportfrequency").value,
+    reporting_frequency:"daily",
     reporting_weekday:Number($("lreportweekday").value||0),
     reporting_monthday:Number($("lreportmonthday").value||1),
     reporting_time:$("lreporttime").value||"08:00",
@@ -472,7 +469,11 @@ async function sendReportNow(){
     $("sendReportNow").disabled=true;
     $("sendReportNow").textContent="Odosielam…";
     const result=await api(`/api/locations/${locEditId}/report/send-now`,{method:"POST"});
-    alert(`Report bol odoslaný na: ${result.recipients.join(", ")}`);
+    if(result.skipped){
+      alert("Za predchádzajúci deň nie sú pre túto prevádzku žiadne údaje. Report sa neodoslal.");
+    }else{
+      alert(`Report za predchádzajúci deň bol odoslaný na: ${result.recipients.join(", ")}`);
+    }
     await refresh();
     const fresh=locations.find(x=>Number(x.id)===Number(locEditId));
     renderReportingStatus(fresh);
@@ -512,7 +513,7 @@ function openLocation(id=null){
   $("lname").value=l?.name||"";$("lcity").value=l?.city||"";$("laddr").value=l?.address||"";$("lkmenabled").checked=l?.km_enabled===true;
   $("lreportenabled").checked=l?.reporting_enabled===true;
   $("lreportrecipients").value=l?.reporting_recipients||"";
-  $("lreportfrequency").value=l?.reporting_frequency||"monthly";
+  $("lreportfrequency").value="daily";
   $("lreportweekday").value=String(l?.reporting_weekday??0);
   $("lreportmonthday").value=String(l?.reporting_monthday??1);
   $("lreporttime").value=l?.reporting_time||"08:00";
