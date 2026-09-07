@@ -1,16 +1,19 @@
+import base64
 import csv
 import hmac
 import io
+import json
 import os
 import re
-import smtplib
-import ssl
 import reportlab
 import xlwt
 from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from email.utils import formataddr
 from typing import Optional
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -39,11 +42,10 @@ ADMIN_LOGIN = os.getenv("ADMIN_LOGIN", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 ADMIN_NAME = os.getenv("ADMIN_NAME", "Administrátor")
 
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "").strip()
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
-SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER).strip()
+GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "").strip()
+GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "").strip()
+GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN", "").strip()
+GMAIL_SENDER_EMAIL = os.getenv("GMAIL_SENDER_EMAIL", "").strip()
 REPORTING_JOB_SECRET = os.getenv("REPORTING_JOB_SECRET", "")
 REPORTING_TIMEZONE = os.getenv("REPORTING_TIMEZONE", "Europe/Bratislava")
 
@@ -270,7 +272,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.9")
+app = FastAPI(title="Dochádzka API", version="5.10")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -632,7 +634,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.9", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "5.10", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -1641,22 +1643,68 @@ def safe_report_filename(value: str) -> str:
     return value.strip("_") or "prevadzka"
 
 
-def smtp_send_report(
+def gmail_access_token() -> str:
+    missing = []
+    if not GMAIL_CLIENT_ID:
+        missing.append("GMAIL_CLIENT_ID")
+    if not GMAIL_CLIENT_SECRET:
+        missing.append("GMAIL_CLIENT_SECRET")
+    if not GMAIL_REFRESH_TOKEN:
+        missing.append("GMAIL_REFRESH_TOKEN")
+    if missing:
+        raise RuntimeError(
+            "V Render Environment chýba: " + ", ".join(missing)
+        )
+
+    body = urlencode(
+        {
+            "client_id": GMAIL_CLIENT_ID,
+            "client_secret": GMAIL_CLIENT_SECRET,
+            "refresh_token": GMAIL_REFRESH_TOKEN,
+            "grant_type": "refresh_token",
+        }
+    ).encode("utf-8")
+    request = Request(
+        "https://oauth2.googleapis.com/token",
+        data=body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=40) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            details = json.loads(raw)
+            description = details.get("error_description") or details.get("error") or raw
+        except Exception:
+            description = raw
+        raise RuntimeError(f"Gmail OAuth zlyhal ({exc.code}): {description}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Gmail OAuth nie je dostupný: {exc.reason}") from exc
+
+    access_token = payload.get("access_token")
+    if not access_token:
+        raise RuntimeError("Google OAuth nevrátil access token")
+    return access_token
+
+
+def gmail_api_send_report(
     location: Location,
     recipients: list[str],
     date_from: date,
     date_to: date,
     attachments: list[tuple[str, bytes, str, str]],
 ):
-    if not SMTP_USER or not SMTP_PASSWORD:
-        raise RuntimeError("SMTP_USER alebo SMTP_PASSWORD nie je nastavené v Render Environment")
-    if not SMTP_FROM:
-        raise RuntimeError("SMTP_FROM nie je nastavené v Render Environment")
+    if not GMAIL_SENDER_EMAIL:
+        raise RuntimeError("GMAIL_SENDER_EMAIL nie je nastavený v Render Environment")
 
     period = export_period_text(date_from, date_to)
     msg = EmailMessage()
     msg["Subject"] = f"Dochádzka – {location.name} – {period}"
-    msg["From"] = formataddr(("MIELL Dochádzka", SMTP_FROM))
+    msg["From"] = formataddr(("MIELL Dochádzka", GMAIL_SENDER_EMAIL))
     msg["To"] = ", ".join(recipients)
     msg.set_content(
         "Dobrý deň,\n\n"
@@ -1668,18 +1716,38 @@ def smtp_send_report(
     for filename, payload, maintype, subtype in attachments:
         msg.add_attachment(payload, maintype=maintype, subtype=subtype, filename=filename)
 
-    context = ssl.create_default_context()
-    if SMTP_PORT == 465:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=40, context=context) as server:
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.send_message(msg)
-    else:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=40) as server:
-            server.ehlo()
-            server.starttls(context=context)
-            server.ehlo()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.send_message(msg)
+    access_token = gmail_access_token()
+    raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
+    body = json.dumps({"raw": raw_message}).encode("utf-8")
+    request = Request(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=60) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            details = json.loads(raw)
+            error_obj = details.get("error", {})
+            description = error_obj.get("message") if isinstance(error_obj, dict) else str(error_obj)
+            description = description or raw
+        except Exception:
+            description = raw
+        raise RuntimeError(f"Gmail API odoslanie zlyhalo ({exc.code}): {description}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Gmail API nie je dostupné: {exc.reason}") from exc
+
+    if not response_payload.get("id"):
+        raise RuntimeError("Gmail API nevrátilo ID odoslanej správy")
+    return response_payload
 
 
 def send_location_report(
@@ -1730,7 +1798,7 @@ def send_location_report(
             "vnd.ms-excel",
         ))
 
-    smtp_send_report(location, recipients, date_from, date_to, attachments)
+    gmail_api_send_report(location, recipients, date_from, date_to, attachments)
 
     location.reporting_last_sent_at = datetime.utcnow()
     location.reporting_last_status = "sent"
