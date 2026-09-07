@@ -1,11 +1,17 @@
 import csv
+import hmac
 import io
 import os
 import re
+import smtplib
+import ssl
 import reportlab
 import xlwt
 from datetime import date, datetime, timedelta
+from email.message import EmailMessage
+from email.utils import formataddr
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +39,14 @@ ADMIN_LOGIN = os.getenv("ADMIN_LOGIN", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 ADMIN_NAME = os.getenv("ADMIN_NAME", "Administrátor")
 
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER).strip()
+REPORTING_JOB_SECRET = os.getenv("REPORTING_JOB_SECRET", "")
+REPORTING_TIMEZONE = os.getenv("REPORTING_TIMEZONE", "Europe/Bratislava")
+
 engine_args = {"connect_args": {"check_same_thread": False}} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, **engine_args)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
@@ -41,6 +55,9 @@ pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 VALID_TYPES = {"Práca", "Dovolenka", "Lekár", "PN", "OČR", "Náhradné voľno", "Iné"}
 VALID_STATUSES = {"approved", "rejected", "pending"}
 TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+VALID_REPORTING_FREQUENCIES = {"daily", "weekly", "monthly"}
+VALID_REPORTING_FORMATS = {"pdf", "xls"}
 
 
 class Base(DeclarativeBase):
@@ -54,6 +71,19 @@ class Location(Base):
     city: Mapped[str] = mapped_column(String(120), default="")
     address: Mapped[str] = mapped_column(String(250), default="")
     km_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    reporting_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    reporting_recipients: Mapped[str] = mapped_column(Text, default="")
+    reporting_frequency: Mapped[str] = mapped_column(String(20), default="monthly")
+    reporting_weekday: Mapped[int] = mapped_column(Integer, default=0)
+    reporting_monthday: Mapped[int] = mapped_column(Integer, default=1)
+    reporting_time: Mapped[str] = mapped_column(String(5), default="08:00")
+    reporting_formats: Mapped[str] = mapped_column(String(20), default="pdf,xls")
+    reporting_only_approved: Mapped[bool] = mapped_column(Boolean, default=True)
+    reporting_last_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    reporting_last_status: Mapped[str] = mapped_column(String(20), default="")
+    reporting_last_error: Mapped[str] = mapped_column(Text, default="")
+    reporting_last_period: Mapped[str] = mapped_column(String(80), default="")
 
 
 user_locations = SqlTable(
@@ -123,6 +153,14 @@ class LocationIn(BaseModel):
     city: str = ""
     address: str = ""
     km_enabled: bool = False
+    reporting_enabled: bool = False
+    reporting_recipients: str = ""
+    reporting_frequency: str = "monthly"
+    reporting_weekday: int = 0
+    reporting_monthday: int = 1
+    reporting_time: str = "08:00"
+    reporting_formats: str = "pdf,xls"
+    reporting_only_approved: bool = True
 
 
 class LocationUpdate(BaseModel):
@@ -130,6 +168,14 @@ class LocationUpdate(BaseModel):
     city: Optional[str] = None
     address: Optional[str] = None
     km_enabled: Optional[bool] = None
+    reporting_enabled: Optional[bool] = None
+    reporting_recipients: Optional[str] = None
+    reporting_frequency: Optional[str] = None
+    reporting_weekday: Optional[int] = None
+    reporting_monthday: Optional[int] = None
+    reporting_time: Optional[str] = None
+    reporting_formats: Optional[str] = None
+    reporting_only_approved: Optional[bool] = None
 
 
 class LocationOut(BaseModel):
@@ -139,6 +185,18 @@ class LocationOut(BaseModel):
     city: str
     address: str
     km_enabled: bool = False
+    reporting_enabled: bool = False
+    reporting_recipients: str = ""
+    reporting_frequency: str = "monthly"
+    reporting_weekday: int = 0
+    reporting_monthday: int = 1
+    reporting_time: str = "08:00"
+    reporting_formats: str = "pdf,xls"
+    reporting_only_approved: bool = True
+    reporting_last_sent_at: Optional[datetime] = None
+    reporting_last_status: str = ""
+    reporting_last_error: str = ""
+    reporting_last_period: str = ""
 
 
 class ShiftIn(BaseModel):
@@ -212,7 +270,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.8")
+app = FastAPI(title="Dochádzka API", version="5.9")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -329,6 +387,100 @@ def normalize_km(value: Optional[int], item_type: str, location: Location) -> in
     return km
 
 
+
+def normalize_reporting_recipients(value: Optional[str]) -> str:
+    items = []
+    seen = set()
+    for raw in re.split(r"[,;\n]+", value or ""):
+        email = raw.strip()
+        if not email:
+            continue
+        key = email.lower()
+        if not EMAIL_RE.match(email):
+            raise HTTPException(400, f"Neplatná e-mailová adresa: {email}")
+        if key not in seen:
+            seen.add(key)
+            items.append(email)
+    if len(items) > 30:
+        raise HTTPException(400, "Reporting môže mať najviac 30 príjemcov")
+    return ", ".join(items)
+
+
+def normalize_reporting_formats(value: Optional[str]) -> str:
+    formats = []
+    for raw in re.split(r"[,;\s]+", value or ""):
+        fmt = raw.strip().lower()
+        if not fmt:
+            continue
+        if fmt not in VALID_REPORTING_FORMATS:
+            raise HTTPException(400, "Formát reportu môže byť iba PDF alebo XLS")
+        if fmt not in formats:
+            formats.append(fmt)
+    return ",".join(formats)
+
+
+def normalized_reporting_config(
+    enabled: bool,
+    recipients: Optional[str],
+    frequency: Optional[str],
+    weekday: Optional[int],
+    monthday: Optional[int],
+    report_time: Optional[str],
+    formats: Optional[str],
+    only_approved: bool,
+):
+    frequency = (frequency or "monthly").strip().lower()
+    if frequency not in VALID_REPORTING_FREQUENCIES:
+        raise HTTPException(400, "Neplatná frekvencia reportingu")
+
+    report_time = validate_time(report_time or "08:00", "Čas reportu")
+    if report_time is None:
+        report_time = "08:00"
+
+    try:
+        weekday = int(weekday if weekday is not None else 0)
+        monthday = int(monthday if monthday is not None else 1)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Neplatný deň reportingu")
+
+    if weekday < 0 or weekday > 6:
+        raise HTTPException(400, "Deň týždňa musí byť pondelok až nedeľa")
+    if monthday < 1 or monthday > 28:
+        raise HTTPException(400, "Mesačný report môže byť nastavený na 1. až 28. deň mesiaca")
+
+    recipients = normalize_reporting_recipients(recipients)
+    formats = normalize_reporting_formats(formats)
+
+    if enabled and not recipients:
+        raise HTTPException(400, "Pri automatickom reportingu zadaj aspoň jedného príjemcu")
+    if enabled and not formats:
+        raise HTTPException(400, "Pri automatickom reportingu vyber PDF alebo XLS")
+
+    return {
+        "reporting_enabled": bool(enabled),
+        "reporting_recipients": recipients,
+        "reporting_frequency": frequency,
+        "reporting_weekday": weekday,
+        "reporting_monthday": monthday,
+        "reporting_time": report_time,
+        "reporting_formats": formats,
+        "reporting_only_approved": bool(only_approved),
+    }
+
+
+def reporting_config_from_location(location: Location):
+    return normalized_reporting_config(
+        location.reporting_enabled,
+        location.reporting_recipients,
+        location.reporting_frequency,
+        location.reporting_weekday,
+        location.reporting_monthday,
+        location.reporting_time,
+        location.reporting_formats,
+        location.reporting_only_approved,
+    )
+
+
 def assigned_location_ids(user: User) -> list[int]:
     ids = [loc.id for loc in (user.locations or [])]
     if not ids and user.location_id is not None:
@@ -412,7 +564,21 @@ def ensure_schema_columns():
     """Add columns introduced after the first deployment without deleting existing data."""
     inspector = inspect(engine)
     migrations = {
-        "locations": [("km_enabled", "BOOLEAN NOT NULL DEFAULT FALSE")],
+        "locations": [
+            ("km_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("reporting_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("reporting_recipients", "TEXT NOT NULL DEFAULT ''"),
+            ("reporting_frequency", "VARCHAR(20) NOT NULL DEFAULT 'monthly'"),
+            ("reporting_weekday", "INTEGER NOT NULL DEFAULT 0"),
+            ("reporting_monthday", "INTEGER NOT NULL DEFAULT 1"),
+            ("reporting_time", "VARCHAR(5) NOT NULL DEFAULT '08:00'"),
+            ("reporting_formats", "VARCHAR(20) NOT NULL DEFAULT 'pdf,xls'"),
+            ("reporting_only_approved", "BOOLEAN NOT NULL DEFAULT TRUE"),
+            ("reporting_last_sent_at", "TIMESTAMP NULL"),
+            ("reporting_last_status", "VARCHAR(20) NOT NULL DEFAULT ''"),
+            ("reporting_last_error", "TEXT NOT NULL DEFAULT ''"),
+            ("reporting_last_period", "VARCHAR(80) NOT NULL DEFAULT ''"),
+        ],
         "shifts": [
             ("break_minutes", "INTEGER NOT NULL DEFAULT 0"),
             ("deduct_break", "BOOLEAN NOT NULL DEFAULT TRUE"),
@@ -466,7 +632,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.5", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "5.9", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -513,7 +679,23 @@ def create_location(data: LocationIn, session: Session = Depends(db), _: User = 
         raise HTTPException(400, "Názov prevádzky je povinný")
     if session.scalar(select(Location).where(Location.name == name)):
         raise HTTPException(400, "Prevádzka s týmto názvom už existuje")
-    obj = Location(name=name, city=data.city.strip(), address=data.address.strip(), km_enabled=bool(data.km_enabled))
+    report_cfg = normalized_reporting_config(
+        data.reporting_enabled,
+        data.reporting_recipients,
+        data.reporting_frequency,
+        data.reporting_weekday,
+        data.reporting_monthday,
+        data.reporting_time,
+        data.reporting_formats,
+        data.reporting_only_approved,
+    )
+    obj = Location(
+        name=name,
+        city=data.city.strip(),
+        address=data.address.strip(),
+        km_enabled=bool(data.km_enabled),
+        **report_cfg,
+    )
     session.add(obj)
     session.commit()
     session.refresh(obj)
@@ -546,6 +728,25 @@ def update_location(
         obj.address = (data.address or "").strip()
     if "km_enabled" in fields:
         obj.km_enabled = bool(data.km_enabled)
+
+    reporting_fields = {
+        "reporting_enabled", "reporting_recipients", "reporting_frequency",
+        "reporting_weekday", "reporting_monthday", "reporting_time",
+        "reporting_formats", "reporting_only_approved",
+    }
+    if fields & reporting_fields:
+        cfg = normalized_reporting_config(
+            data.reporting_enabled if "reporting_enabled" in fields else obj.reporting_enabled,
+            data.reporting_recipients if "reporting_recipients" in fields else obj.reporting_recipients,
+            data.reporting_frequency if "reporting_frequency" in fields else obj.reporting_frequency,
+            data.reporting_weekday if "reporting_weekday" in fields else obj.reporting_weekday,
+            data.reporting_monthday if "reporting_monthday" in fields else obj.reporting_monthday,
+            data.reporting_time if "reporting_time" in fields else obj.reporting_time,
+            data.reporting_formats if "reporting_formats" in fields else obj.reporting_formats,
+            data.reporting_only_approved if "reporting_only_approved" in fields else obj.reporting_only_approved,
+        )
+        for key, value in cfg.items():
+            setattr(obj, key, value)
 
     session.commit()
     session.refresh(obj)
@@ -978,6 +1179,7 @@ def filtered_attendance_rows(
     user_id: Optional[int] = None,
     location_id: Optional[int] = None,
     user_ids: Optional[list[int]] = None,
+    only_approved: bool = False,
 ):
     if date_from and date_to and date_from > date_to:
         raise HTTPException(400, "Dátum Od nemôže byť neskôr ako Dátum Do")
@@ -992,6 +1194,8 @@ def filtered_attendance_rows(
         stmt = stmt.where(Attendance.user_id == user_id)
     if location_id:
         stmt = stmt.where(Attendance.location_id == location_id)
+    if only_approved:
+        stmt = stmt.where(Attendance.status == "approved")
     return session.scalars(stmt).all()
 
 
@@ -1386,6 +1590,239 @@ def my_attendance_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+
+def reporting_period(frequency: str, today: date):
+    if frequency == "daily":
+        d = today - timedelta(days=1)
+        return d, d
+    if frequency == "weekly":
+        current_monday = today - timedelta(days=today.weekday())
+        end = current_monday - timedelta(days=1)
+        start = end - timedelta(days=6)
+        return start, end
+
+    first_this_month = today.replace(day=1)
+    end = first_this_month - timedelta(days=1)
+    start = end.replace(day=1)
+    return start, end
+
+
+def reporting_period_key(location: Location, date_from: date, date_to: date) -> str:
+    return f"{location.reporting_frequency}:{date_from.isoformat()}:{date_to.isoformat()}"
+
+
+def reporting_due(location: Location, now_local: datetime):
+    if not location.reporting_enabled:
+        return None
+    try:
+        hh, mm = map(int, (location.reporting_time or "08:00").split(":"))
+    except Exception:
+        return None
+
+    if (now_local.hour, now_local.minute) < (hh, mm):
+        return None
+
+    if location.reporting_frequency == "weekly" and now_local.weekday() != int(location.reporting_weekday or 0):
+        return None
+    if location.reporting_frequency == "monthly" and now_local.day != int(location.reporting_monthday or 1):
+        return None
+
+    date_from, date_to = reporting_period(location.reporting_frequency, now_local.date())
+    period_key = reporting_period_key(location, date_from, date_to)
+    if location.reporting_last_period == period_key:
+        return None
+    return date_from, date_to, period_key
+
+
+def safe_report_filename(value: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9._-]+", "_", value or "")
+    return value.strip("_") or "prevadzka"
+
+
+def smtp_send_report(
+    location: Location,
+    recipients: list[str],
+    date_from: date,
+    date_to: date,
+    attachments: list[tuple[str, bytes, str, str]],
+):
+    if not SMTP_USER or not SMTP_PASSWORD:
+        raise RuntimeError("SMTP_USER alebo SMTP_PASSWORD nie je nastavené v Render Environment")
+    if not SMTP_FROM:
+        raise RuntimeError("SMTP_FROM nie je nastavené v Render Environment")
+
+    period = export_period_text(date_from, date_to)
+    msg = EmailMessage()
+    msg["Subject"] = f"Dochádzka – {location.name} – {period}"
+    msg["From"] = formataddr(("MIELL Dochádzka", SMTP_FROM))
+    msg["To"] = ", ".join(recipients)
+    msg.set_content(
+        "Dobrý deň,\n\n"
+        f"v prílohe posielame report dochádzky pre prevádzku {location.name} "
+        f"za obdobie {period}.\n\n"
+        "Tento e-mail bol odoslaný automaticky zo systému MIELL Dochádzka."
+    )
+
+    for filename, payload, maintype, subtype in attachments:
+        msg.add_attachment(payload, maintype=maintype, subtype=subtype, filename=filename)
+
+    context = ssl.create_default_context()
+    if SMTP_PORT == 465:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=40, context=context) as server:
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(msg)
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=40) as server:
+            server.ehlo()
+            server.starttls(context=context)
+            server.ehlo()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(msg)
+
+
+def send_location_report(
+    session: Session,
+    location: Location,
+    date_from: date,
+    date_to: date,
+    *,
+    scheduled: bool = False,
+    period_key: Optional[str] = None,
+):
+    recipients_text = normalize_reporting_recipients(location.reporting_recipients)
+    recipients = [x.strip() for x in recipients_text.split(",") if x.strip()]
+    if not recipients:
+        raise HTTPException(400, "Pri prevádzke nie sú nastavení príjemcovia reportu")
+
+    formats_text = normalize_reporting_formats(location.reporting_formats)
+    formats = [x for x in formats_text.split(",") if x]
+    if not formats:
+        raise HTTPException(400, "Pri prevádzke nie je vybraný formát reportu")
+
+    rows = filtered_attendance_rows(
+        session,
+        date_from=date_from,
+        date_to=date_to,
+        location_id=location.id,
+        only_approved=bool(location.reporting_only_approved),
+    )
+    user_label = "Všetci zamestnanci"
+    location_label = location.name
+    base = safe_report_filename(location.name)
+    attachments = []
+
+    if "pdf" in formats:
+        pdf_payload = build_admin_pdf(rows, date_from, date_to, user_label, location_label)
+        attachments.append((
+            f"Dochadzka_{base}_{date_from.isoformat()}_{date_to.isoformat()}.pdf",
+            pdf_payload,
+            "application",
+            "pdf",
+        ))
+    if "xls" in formats:
+        xls_payload = build_admin_xls(rows, date_from, date_to, user_label, location_label)
+        attachments.append((
+            f"Dochadzka_{base}_{date_from.isoformat()}_{date_to.isoformat()}.xls",
+            xls_payload,
+            "application",
+            "vnd.ms-excel",
+        ))
+
+    smtp_send_report(location, recipients, date_from, date_to, attachments)
+
+    location.reporting_last_sent_at = datetime.utcnow()
+    location.reporting_last_status = "sent"
+    location.reporting_last_error = ""
+    if scheduled and period_key:
+        location.reporting_last_period = period_key
+    session.commit()
+
+    return {
+        "ok": True,
+        "location_id": location.id,
+        "location_name": location.name,
+        "recipients": recipients,
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+        "formats": formats,
+        "rows": len(rows),
+    }
+
+
+@app.post("/api/locations/{location_id}/report/send-now")
+def send_report_now(
+    location_id: int,
+    session: Session = Depends(db),
+    _: User = Depends(admin_only),
+):
+    location = session.get(Location, location_id)
+    if not location:
+        raise HTTPException(404, "Prevádzka neexistuje")
+    date_from, date_to = reporting_period(location.reporting_frequency, date.today())
+    try:
+        return send_location_report(session, location, date_from, date_to, scheduled=False)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        location.reporting_last_sent_at = datetime.utcnow()
+        location.reporting_last_status = "error"
+        location.reporting_last_error = str(exc)[:1500]
+        session.commit()
+        raise HTTPException(500, f"Odoslanie reportu zlyhalo: {exc}")
+
+
+@app.post("/api/reporting/run-due")
+def run_due_reporting(
+    x_reporting_secret: Optional[str] = Header(None, alias="X-Reporting-Secret"),
+    session: Session = Depends(db),
+):
+    if not REPORTING_JOB_SECRET:
+        raise HTTPException(503, "REPORTING_JOB_SECRET nie je nastavený")
+    if not x_reporting_secret or not hmac.compare_digest(x_reporting_secret, REPORTING_JOB_SECRET):
+        raise HTTPException(401, "Neplatný reporting secret")
+
+    try:
+        now_local = datetime.now(ZoneInfo(REPORTING_TIMEZONE))
+    except Exception:
+        now_local = datetime.utcnow()
+
+    sent = []
+    errors = []
+    locations = session.scalars(
+        select(Location).where(Location.reporting_enabled == True).order_by(Location.id)
+    ).all()
+
+    for location in locations:
+        due = reporting_due(location, now_local)
+        if not due:
+            continue
+        date_from, date_to, period_key = due
+        try:
+            result = send_location_report(
+                session,
+                location,
+                date_from,
+                date_to,
+                scheduled=True,
+                period_key=period_key,
+            )
+            sent.append(result)
+        except Exception as exc:
+            location.reporting_last_sent_at = datetime.utcnow()
+            location.reporting_last_status = "error"
+            location.reporting_last_error = str(exc)[:1500]
+            session.commit()
+            errors.append({"location_id": location.id, "location_name": location.name, "error": str(exc)})
+
+    return {
+        "ok": len(errors) == 0,
+        "checked_at": now_local.isoformat(),
+        "timezone": REPORTING_TIMEZONE,
+        "sent": sent,
+        "errors": errors,
+    }
 
 
 @app.get("/api/export.pdf")
