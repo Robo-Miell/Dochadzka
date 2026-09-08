@@ -525,14 +525,25 @@ class _EmployeeHomeState extends State<EmployeeHome> {
     }
   }
 
+  Future<void> openChangePassword() async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const ChangePasswordPage()),
+    );
+    if (changed == true && mounted) {
+      await widget.onLogout();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const BrandAppTitle('Moja dochádzka'),
         actions: [
-          IconButton(onPressed: refresh, icon: const Icon(Icons.refresh)),
-          IconButton(onPressed: widget.onLogout, icon: const Icon(Icons.logout)),
+          IconButton(onPressed: refresh, tooltip: 'Obnoviť', icon: const Icon(Icons.refresh)),
+          IconButton(onPressed: openChangePassword, tooltip: 'Zmeniť heslo', icon: const Icon(Icons.password_outlined)),
+          IconButton(onPressed: widget.onLogout, tooltip: 'Odhlásiť', icon: const Icon(Icons.logout)),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -632,6 +643,127 @@ class _EmployeeHomeState extends State<EmployeeHome> {
             const SizedBox(height: 90),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class ChangePasswordPage extends StatefulWidget {
+  const ChangePasswordPage({super.key});
+
+  @override
+  State<ChangePasswordPage> createState() => _ChangePasswordPageState();
+}
+
+class _ChangePasswordPageState extends State<ChangePasswordPage> {
+  final currentPassword = TextEditingController();
+  final newPassword = TextEditingController();
+  final confirmPassword = TextEditingController();
+  bool busy = false;
+  String? error;
+
+  @override
+  void dispose() {
+    currentPassword.dispose();
+    newPassword.dispose();
+    confirmPassword.dispose();
+    super.dispose();
+  }
+
+  Future<void> save() async {
+    final current = currentPassword.text;
+    final next = newPassword.text;
+    final confirmation = confirmPassword.text;
+    if (current.isEmpty) {
+      setState(() => error = 'Zadaj aktuálne heslo');
+      return;
+    }
+    if (next.length < 8) {
+      setState(() => error = 'Nové heslo musí mať aspoň 8 znakov');
+      return;
+    }
+    if (next != confirmation) {
+      setState(() => error = 'Nové heslá sa nezhodujú');
+      return;
+    }
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      await api.request(
+        '/api/me/change-password',
+        method: 'POST',
+        body: {'current_password': current, 'new_password': next},
+      );
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Heslo zmenené'),
+          content: const Text('Heslo bolo úspešne zmenené. Prihlás sa znova novým heslom.'),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) setState(() => error = cleanError(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const BrandAppTitle('Zmeniť heslo')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('Pre zmenu hesla zadaj svoje aktuálne heslo a potom nové heslo.'),
+          const SizedBox(height: 18),
+          TextField(
+            controller: currentPassword,
+            obscureText: true,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(labelText: 'Aktuálne heslo'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: newPassword,
+            obscureText: true,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(
+              labelText: 'Nové heslo',
+              helperText: 'Minimálne 8 znakov',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: confirmPassword,
+            obscureText: true,
+            onSubmitted: (_) => save(),
+            decoration: const InputDecoration(labelText: 'Zopakovať nové heslo'),
+          ),
+          if (error != null) ...[
+            const SizedBox(height: 12),
+            Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ],
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: busy ? null : save,
+            icon: busy
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.password_outlined),
+            label: const Text('Zmeniť heslo'),
+          ),
+        ],
       ),
     );
   }
@@ -1503,7 +1635,7 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
         'location_ids': locationIds.toList()..sort(),
         'active': active,
       };
-      if (!editing || password.text.isNotEmpty) body['password'] = password.text;
+      if (!editing) body['password'] = password.text;
       await api.request(
         editing ? '/api/users/${widget.employee!['id']}' : '/api/users',
         method: editing ? 'PATCH' : 'POST',
@@ -1514,6 +1646,21 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
       if (mounted) setState(() => error = cleanError(e));
     } finally {
       if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> resetPassword() async {
+    if (!editing) return;
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AdminResetPasswordPage(employee: widget.employee!),
+      ),
+    );
+    if (changed == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Heslo zamestnanca bolo resetované.')),
+      );
     }
   }
 
@@ -1532,14 +1679,21 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
           const SizedBox(height: 12),
           TextField(controller: login, decoration: const InputDecoration(labelText: 'Login')),
           const SizedBox(height: 12),
-          TextField(
-            controller: password,
-            obscureText: true,
-            decoration: InputDecoration(
-              labelText: editing ? 'Nové heslo (nepovinné)' : 'Heslo',
-              helperText: editing ? 'Prázdne pole = heslo sa nemení' : null,
+          if (!editing)
+            TextField(
+              controller: password,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Heslo',
+                helperText: 'Minimálne 8 znakov',
+              ),
+            )
+          else
+            OutlinedButton.icon(
+              onPressed: resetPassword,
+              icon: const Icon(Icons.password_outlined),
+              label: const Text('Resetovať heslo zamestnanca'),
             ),
-          ),
           const SizedBox(height: 12),
           const Text(
             'Prevádzky',
@@ -1594,6 +1748,103 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
             child: busy
                 ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Text('Uložiť'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AdminResetPasswordPage extends StatefulWidget {
+  final Map<String, dynamic> employee;
+  const AdminResetPasswordPage({super.key, required this.employee});
+
+  @override
+  State<AdminResetPasswordPage> createState() => _AdminResetPasswordPageState();
+}
+
+class _AdminResetPasswordPageState extends State<AdminResetPasswordPage> {
+  final password = TextEditingController();
+  final confirmation = TextEditingController();
+  bool busy = false;
+  String? error;
+
+  @override
+  void dispose() {
+    password.dispose();
+    confirmation.dispose();
+    super.dispose();
+  }
+
+  Future<void> save() async {
+    final next = password.text;
+    if (next.length < 8) {
+      setState(() => error = 'Nové heslo musí mať aspoň 8 znakov');
+      return;
+    }
+    if (next != confirmation.text) {
+      setState(() => error = 'Heslá sa nezhodujú');
+      return;
+    }
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      await api.request(
+        '/api/users/${widget.employee['id']}/reset-password',
+        method: 'POST',
+        body: {'new_password': next},
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) setState(() => error = cleanError(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final employeeName = widget.employee['name']?.toString() ?? '';
+    final employeeLogin = widget.employee['login']?.toString() ?? '';
+    return Scaffold(
+      appBar: AppBar(title: const BrandAppTitle('Resetovať heslo')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(employeeName, style: Theme.of(context).textTheme.titleLarge),
+          Text('Login: $employeeLogin'),
+          const SizedBox(height: 18),
+          TextField(
+            controller: password,
+            obscureText: true,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(
+              labelText: 'Nové heslo',
+              helperText: 'Minimálne 8 znakov',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: confirmation,
+            obscureText: true,
+            onSubmitted: (_) => save(),
+            decoration: const InputDecoration(labelText: 'Zopakovať nové heslo'),
+          ),
+          const SizedBox(height: 8),
+          const Text('Po resete sa zamestnanec odhlási zo všetkých aktívnych prihlásení.'),
+          if (error != null) ...[
+            const SizedBox(height: 12),
+            Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ],
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: busy ? null : save,
+            icon: busy
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.password_outlined),
+            label: const Text('Resetovať heslo'),
           ),
         ],
       ),
