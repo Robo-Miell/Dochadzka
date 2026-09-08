@@ -574,7 +574,7 @@ class _EmployeeHomeState extends State<EmployeeHome> {
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             Text(
-              'Osobné číslo: ${widget.user['personal_number']} • ${(widget.user['location_names'] is List && (widget.user['location_names'] as List).isNotEmpty) ? (widget.user['location_names'] as List).join(', ') : (widget.user['location_name'] ?? '')}',
+              'Osobné číslo: ${widget.user['personal_number']}',
             ),
             const SizedBox(height: 12),
             MonthSelector(
