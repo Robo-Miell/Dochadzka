@@ -283,7 +283,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.13.3")
+app = FastAPI(title="Dochádzka API", version="5.14")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -321,6 +321,17 @@ def validate_new_password(value: str) -> str:
     if len(value) > 72 or len(value.encode("utf-8")) > 72:
         raise HTTPException(400, "Heslo môže mať najviac 72 znakov")
     return value
+
+
+def validate_employee_attendance_date(work_date: date) -> None:
+    """Employee may create attendance only for today or the previous calendar day."""
+    today_local = datetime.now(ZoneInfo(REPORTING_TIMEZONE)).date()
+    earliest = today_local - timedelta(days=1)
+    if work_date < earliest or work_date > today_local:
+        raise HTTPException(
+            400,
+            "Dochádzku môžeš zadať iba za dnešný alebo predchádzajúci kalendárny deň.",
+        )
 
 
 def get_current_user(
@@ -665,7 +676,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.13.3", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "5.14", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -1106,6 +1117,9 @@ def create_attendance(
     session: Session = Depends(db),
     user: User = Depends(get_current_user),
 ):
+    if user.role != "admin":
+        validate_employee_attendance_date(data.work_date)
+
     target_user_id = data.user_id if user.role == "admin" and data.user_id else user.id
     target_user = session.get(User, target_user_id)
     if not target_user or target_user.role != "employee":
