@@ -828,7 +828,6 @@ class AttendanceCard extends StatelessWidget {
         onTap: onTap,
         title: Text('${displayIsoDate(item['work_date'].toString())} • ${item['type']}'),
         subtitle: Text(
-          '${item['location_name'] ?? ''}\n'
           '${time.isEmpty ? '' : '$time • '}${hours.toStringAsFixed(2)} h${km > 0 ? ' • $km km' : ''}\n'
           '${statusText(item['status']?.toString() ?? 'pending')}${note.isEmpty ? '' : ' • $note'}',
         ),
