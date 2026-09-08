@@ -272,7 +272,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.11")
+app = FastAPI(title="Dochádzka API", version="5.12")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -638,7 +638,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.11", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "5.12", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -1177,6 +1177,22 @@ STATUS_SK = {
     "rejected": "Zamietnuté",
 }
 
+STATUS_EN = {
+    "approved": "Approved",
+    "pending": "Pending approval",
+    "rejected": "Rejected",
+}
+
+TYPE_EN = {
+    "Práca": "Work",
+    "Dovolenka": "Vacation",
+    "Lekár": "Doctor",
+    "PN": "Sick leave",
+    "OČR": "Care leave",
+    "Náhradné voľno": "Compensatory leave",
+    "Iné": "Other",
+}
+
 
 def filtered_attendance_rows(
     session: Session,
@@ -1231,6 +1247,14 @@ def parse_user_ids_param(user_ids: Optional[str]) -> Optional[list[int]]:
 def export_period_text(date_from: Optional[date], date_to: Optional[date]) -> str:
     def f(d: Optional[date]) -> str:
         return d.strftime("%d.%m.%Y") if d else "bez obmedzenia"
+    return f"{f(date_from)} - {f(date_to)}"
+
+
+def export_period_text_en(date_from: Optional[date], date_to: Optional[date]) -> str:
+    def f(d: Optional[date]) -> str:
+        return d.strftime("%d.%m.%Y") if d else "no limit"
+    if date_from and date_to and date_from == date_to:
+        return f(date_from)
     return f"{f(date_from)} - {f(date_to)}"
 
 
@@ -1528,6 +1552,178 @@ def build_admin_xls(
     return buf.getvalue()
 
 
+
+
+def pdf_footer_en(canvas, doc):
+    ensure_pdf_fonts()
+    canvas.saveState()
+    canvas.setStrokeColor(colors.HexColor("#D9E3D8"))
+    canvas.line(doc.leftMargin, 8 * mm, doc.pagesize[0] - doc.rightMargin, 8 * mm)
+    canvas.setFont("Vera", 7)
+    canvas.setFillColor(colors.HexColor("#667085"))
+    canvas.drawString(doc.leftMargin, 4.5 * mm, "MIELL Attendance")
+    canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, 4.5 * mm, f"Page {doc.page}")
+    canvas.restoreState()
+
+
+def build_reporting_pdf_en(
+    rows,
+    date_from: Optional[date],
+    date_to: Optional[date],
+    user_label: str,
+    location_label: str,
+):
+    """English PDF used only for reports sent by e-mail."""
+    ensure_pdf_fonts()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=landscape(A4),
+        leftMargin=8 * mm,
+        rightMargin=8 * mm,
+        topMargin=8 * mm,
+        bottomMargin=13 * mm,
+        title="Attendance Report",
+        author="MIELL Quality",
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("TitleVeraEn", parent=styles["Title"], fontName="VeraBd", fontSize=16, leading=19, textColor=colors.HexColor("#172033"), alignment=TA_LEFT)
+    small = ParagraphStyle("SmallVeraEn", parent=styles["BodyText"], fontName="Vera", fontSize=6.4, leading=8, textColor=colors.HexColor("#172033"))
+    small_center = ParagraphStyle("SmallCenterEn", parent=small, alignment=TA_CENTER)
+    meta = ParagraphStyle("MetaVeraEn", parent=styles["BodyText"], fontName="Vera", fontSize=8, leading=10, textColor=colors.HexColor("#667085"))
+    summary = ParagraphStyle("SummaryVeraEn", parent=styles["BodyText"], fontName="VeraBd", fontSize=9, leading=11, textColor=colors.HexColor("#172033"))
+
+    story = []
+    logo = pdf_logo()
+    if logo:
+        header = Table([[logo, Paragraph("Attendance Report", title_style)]], colWidths=[60 * mm, 210 * mm])
+        header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+        story.append(header)
+    else:
+        story.append(Paragraph("Attendance Report", title_style))
+    story.append(Spacer(1, 3 * mm))
+    story.append(Paragraph(
+        f"Period: <b>{export_period_text_en(date_from, date_to)}</b> &nbsp;&nbsp; Employee: <b>{user_label}</b> &nbsp;&nbsp; Location: <b>{location_label}</b>",
+        meta,
+    ))
+    story.append(Spacer(1, 3 * mm))
+
+    headers = ["Date", "Personnel No.", "Employee", "Location", "Type", "From", "To", "Break", "Ded.", "Hours", "KM", "Billing", "Status", "Note"]
+    data = [[pdf_paragraph(h, small_center) for h in headers]]
+    for a in rows:
+        data.append([
+            pdf_paragraph(a.work_date.strftime("%d.%m.%Y"), small_center),
+            pdf_paragraph(a.user.personal_number, small),
+            pdf_paragraph(a.user.name, small),
+            pdf_paragraph(a.location.name, small),
+            pdf_paragraph(TYPE_EN.get(a.type, a.type), small),
+            pdf_paragraph(a.time_from or "", small_center),
+            pdf_paragraph(a.time_to or "", small_center),
+            pdf_paragraph(f"{a.break_minutes or 0} min", small_center),
+            pdf_paragraph("Yes" if a.deduct_break else "No", small_center),
+            pdf_paragraph(f"{attendance_hours(a):.2f}", small_center),
+            pdf_paragraph(str(int(a.km or 0)) if a.km else "", small_center),
+            pdf_paragraph("Confirmed" if a.billing_confirmed else "No", small_center),
+            pdf_paragraph(STATUS_EN.get(a.status, a.status), small),
+            pdf_paragraph(a.note or "", small),
+        ])
+    col_widths = [18, 18, 27, 24, 18, 12, 12, 16, 11, 13, 12, 20, 23, 37]
+    table = LongTable(data, colWidths=[x * mm for x in col_widths], repeatRows=1, hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#348C2E")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "VeraBd"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D9E3D8")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7FAF7")]),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2.3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2.3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 4 * mm))
+    approved_hours = sum(attendance_hours(a) for a in rows if a.status == "approved")
+    all_hours = sum(attendance_hours(a) for a in rows)
+    total_km = sum(int(a.km or 0) for a in rows)
+    story.append(Paragraph(
+        f"Records: {len(rows)} &nbsp;&nbsp; | &nbsp;&nbsp; Approved working hours: {approved_hours:.2f} h &nbsp;&nbsp; | &nbsp;&nbsp; Recorded working hours total: {all_hours:.2f} h &nbsp;&nbsp; | &nbsp;&nbsp; Total KM: {total_km}",
+        summary,
+    ))
+    doc.build(story, onFirstPage=pdf_footer_en, onLaterPages=pdf_footer_en)
+    return buf.getvalue()
+
+
+def build_reporting_xls_en(
+    rows,
+    date_from: Optional[date],
+    date_to: Optional[date],
+    user_label: str,
+    location_label: str,
+):
+    """English XLS used only for reports sent by e-mail."""
+    if len(rows) > 65000:
+        raise HTTPException(400, "XLS export supports a maximum of 65,000 records at once. Narrow the period or filter.")
+    wb = xlwt.Workbook(encoding="utf-8")
+    ws = wb.add_sheet("Attendance", cell_overwrite_ok=True)
+    title_style = xlwt.easyxf("font: bold on, height 320; align: vert centre;")
+    label_style = xlwt.easyxf("font: bold on; pattern: pattern solid, fore_colour ice_blue;")
+    header_style = xlwt.easyxf("font: bold on, colour white; pattern: pattern solid, fore_colour green; align: horiz center, vert centre; borders: bottom thin, left thin, right thin, top thin;")
+    cell_style = xlwt.easyxf("align: vert top; borders: bottom thin, left thin, right thin, top thin;")
+    center_style = xlwt.easyxf("align: horiz center, vert top; borders: bottom thin, left thin, right thin, top thin;")
+    hours_style = xlwt.easyxf("align: horiz right, vert top; borders: bottom thin, left thin, right thin, top thin;", num_format_str="0.00")
+    summary_style = xlwt.easyxf("font: bold on; pattern: pattern solid, fore_colour light_green;")
+
+    ws.write_merge(0, 0, 0, 5, "MIELL Attendance - Report", title_style)
+    ws.write(2, 0, "Period", label_style); ws.write(2, 1, export_period_text_en(date_from, date_to))
+    ws.write(3, 0, "Employee", label_style); ws.write(3, 1, user_label)
+    ws.write(4, 0, "Location", label_style); ws.write(4, 1, location_label)
+
+    headers = ["Date", "Personnel No.", "Employee", "Location", "Type", "From", "To", "Break min", "Break deducted", "Worked hours", "KM", "Billing confirmed", "Confirmed at (UTC)", "Status", "Note"]
+    header_row = 6
+    for c, h in enumerate(headers):
+        ws.write(header_row, c, h, header_style)
+
+    for r, a in enumerate(rows, start=header_row + 1):
+        values = [
+            a.work_date.strftime("%d.%m.%Y"), a.user.personal_number, a.user.name,
+            a.location.name, TYPE_EN.get(a.type, a.type), a.time_from or "", a.time_to or "",
+            int(a.break_minutes or 0), "Yes" if a.deduct_break else "No",
+            attendance_hours(a), int(a.km or 0),
+            "Yes" if a.billing_confirmed else "No",
+            a.billing_confirmed_at.strftime("%d.%m.%Y %H:%M:%S") if a.billing_confirmed_at else "",
+            STATUS_EN.get(a.status, a.status), a.note or "",
+        ]
+        for c, value in enumerate(values):
+            if c in {9, 10}:
+                ws.write(r, c, value, hours_style)
+            elif c in {0, 5, 6, 7, 8, 11, 12}:
+                ws.write(r, c, value, center_style)
+            else:
+                ws.write(r, c, value, cell_style)
+
+    end_row = header_row + 1 + len(rows) + 1
+    approved_hours = sum(attendance_hours(a) for a in rows if a.status == "approved")
+    all_hours = sum(attendance_hours(a) for a in rows)
+    ws.write(end_row, 0, "Summary", summary_style)
+    ws.write(end_row, 1, f"Records: {len(rows)}", summary_style)
+    ws.write(end_row, 2, f"Approved hours: {approved_hours:.2f}", summary_style)
+    ws.write(end_row, 3, f"Recorded hours total: {all_hours:.2f}", summary_style)
+    ws.write(end_row, 4, f"Total KM: {sum(int(a.km or 0) for a in rows)}", summary_style)
+
+    location_col_width = max(30, max((len(a.location.name or "") for a in rows), default=0) + 3)
+    location_col_width = min(80, location_col_width)
+    widths = [13, 16, 24, location_col_width, 20, 9, 9, 15, 20, 18, 10, 20, 22, 22, 42]
+    for i, w in enumerate(widths):
+        ws.col(i).width = min(255, w) * 256
+    ws.panes_frozen = True
+    ws.horz_split_pos = header_row + 1
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def resolve_filter_labels(
     session: Session,
     user_id: Optional[int],
@@ -1695,16 +1891,16 @@ def gmail_api_send_report(
     if not GMAIL_SENDER_EMAIL:
         raise RuntimeError("GMAIL_SENDER_EMAIL nie je nastavený v Render Environment")
 
-    period = export_period_text(date_from, date_to)
+    period = export_period_text_en(date_from, date_to)
     msg = EmailMessage()
-    msg["Subject"] = f"Dochádzka – {location.name} – {period}"
-    msg["From"] = formataddr(("MIELL Dochádzka", GMAIL_SENDER_EMAIL))
+    msg["Subject"] = f"Attendance Report – {location.name} – {period}"
+    msg["From"] = formataddr(("MIELL Attendance", GMAIL_SENDER_EMAIL))
     msg["To"] = ", ".join(recipients)
     msg.set_content(
-        "Dobrý deň,\n\n"
-        f"v prílohe posielame report dochádzky pre prevádzku {location.name} "
-        f"za obdobie {period}.\n\n"
-        "Tento e-mail bol odoslaný automaticky zo systému MIELL Dochádzka."
+        "Hello,\n\n"
+        f"please find attached the attendance report for location {location.name} "
+        f"for {period}.\n\n"
+        "This e-mail was sent automatically by the MIELL Attendance system."
     )
 
     for filename, payload, maintype, subtype in attachments:
@@ -1794,23 +1990,23 @@ def send_location_report(
             "rows": 0,
         }
 
-    user_label = "Všetci zamestnanci"
+    user_label = "All employees"
     location_label = location.name
     base = safe_report_filename(location.name)
     attachments = []
 
     if "pdf" in formats:
-        pdf_payload = build_admin_pdf(rows, date_from, date_to, user_label, location_label)
+        pdf_payload = build_reporting_pdf_en(rows, date_from, date_to, user_label, location_label)
         attachments.append((
-            f"Dochadzka_{base}_{date_from.isoformat()}_{date_to.isoformat()}.pdf",
+            f"Attendance_Report_{base}_{date_from.isoformat()}_{date_to.isoformat()}.pdf",
             pdf_payload,
             "application",
             "pdf",
         ))
     if "xls" in formats:
-        xls_payload = build_admin_xls(rows, date_from, date_to, user_label, location_label)
+        xls_payload = build_reporting_xls_en(rows, date_from, date_to, user_label, location_label)
         attachments.append((
-            f"Dochadzka_{base}_{date_from.isoformat()}_{date_to.isoformat()}.xls",
+            f"Attendance_Report_{base}_{date_from.isoformat()}_{date_to.isoformat()}.xls",
             xls_payload,
             "application",
             "vnd.ms-excel",
