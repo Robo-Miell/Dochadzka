@@ -117,6 +117,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), default="employee")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
     # Legacy/default location kept for backwards compatibility and as the initial selection in the app.
     location_id: Mapped[Optional[int]] = mapped_column(ForeignKey("locations.id"), nullable=True)
     location: Mapped[Optional[Location]] = relationship(foreign_keys=[location_id])
@@ -148,6 +149,15 @@ class Attendance(Base):
 class LoginIn(BaseModel):
     login: str
     password: str
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class ResetPasswordIn(BaseModel):
+    new_password: str
 
 
 class LocationIn(BaseModel):
@@ -272,7 +282,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.12")
+app = FastAPI(title="Dochádzka API", version="5.13")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -297,9 +307,19 @@ def token_for(user: User):
     payload = {
         "sub": str(user.id),
         "role": user.role,
+        "ver": int(user.token_version or 0),
         "exp": datetime.utcnow() + timedelta(minutes=JWT_EXPIRE_MINUTES),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
+
+def validate_new_password(value: str) -> str:
+    value = value or ""
+    if len(value) < 8:
+        raise HTTPException(400, "Nové heslo musí mať aspoň 8 znakov")
+    if len(value) > 72 or len(value.encode("utf-8")) > 72:
+        raise HTTPException(400, "Heslo môže mať najviac 72 znakov")
+    return value
 
 
 def get_current_user(
@@ -317,6 +337,9 @@ def get_current_user(
     user = session.get(User, uid)
     if not user or not user.active:
         raise HTTPException(401, "Účet nie je aktívny")
+    token_version = int(data.get("ver", 0) or 0)
+    if token_version != int(user.token_version or 0):
+        raise HTTPException(401, "Prihlásenie už nie je platné. Prihlás sa znova.")
     return user
 
 
@@ -566,6 +589,9 @@ def ensure_schema_columns():
     """Add columns introduced after the first deployment without deleting existing data."""
     inspector = inspect(engine)
     migrations = {
+        "users": [
+            ("token_version", "INTEGER NOT NULL DEFAULT 0"),
+        ],
         "locations": [
             ("km_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
             ("reporting_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
@@ -638,7 +664,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.12", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "5.13", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -665,6 +691,25 @@ def login(data: LoginIn, session: Session = Depends(db)):
 @app.get("/api/me")
 def me(user: User = Depends(get_current_user)):
     return serialize_user(user)
+
+
+@app.post("/api/me/change-password")
+def change_my_password(
+    data: ChangePasswordIn,
+    session: Session = Depends(db),
+    user: User = Depends(get_current_user),
+):
+    if user.role != "employee":
+        raise HTTPException(403, "Zmenu hesla v aplikácii môže vykonať zamestnanec")
+    if not pwd.verify(data.current_password or "", user.password_hash):
+        raise HTTPException(400, "Aktuálne heslo nie je správne")
+    new_password = validate_new_password(data.new_password)
+    if pwd.verify(new_password, user.password_hash):
+        raise HTTPException(400, "Nové heslo musí byť odlišné od aktuálneho hesla")
+    user.password_hash = pwd.hash(new_password)
+    user.token_version = int(user.token_version or 0) + 1
+    session.commit()
+    return {"ok": True, "message": "Heslo bolo zmenené. Prihlás sa znova."}
 
 
 @app.get("/api/locations")
@@ -919,11 +964,12 @@ def create_user(data: UserIn, session: Session = Depends(db), _: User = Depends(
         raise HTTPException(400, "Osobné číslo už existuje")
     requested_ids = data.location_ids or ([data.location_id] if data.location_id is not None else [])
     locs = validate_user_locations(session, requested_ids)
+    new_password = validate_new_password(data.password)
     obj = User(
         personal_number=personal_number,
         name=name,
         login=login_value,
-        password_hash=pwd.hash(data.password),
+        password_hash=pwd.hash(new_password),
         role="employee",
         active=data.active,
         location_id=locs[0].id,
@@ -981,11 +1027,30 @@ def update_user(
     if "active" in fields and data.active is not None:
         obj.active = data.active
     if "password" in fields and data.password:
-        obj.password_hash = pwd.hash(data.password)
+        new_password = validate_new_password(data.password)
+        obj.password_hash = pwd.hash(new_password)
+        obj.token_version = int(obj.token_version or 0) + 1
 
     session.commit()
     session.refresh(obj)
     return serialize_user(obj)
+
+
+@app.post("/api/users/{user_id}/reset-password")
+def reset_user_password(
+    user_id: int,
+    data: ResetPasswordIn,
+    session: Session = Depends(db),
+    _: User = Depends(admin_only),
+):
+    obj = session.get(User, user_id)
+    if not obj or obj.role != "employee":
+        raise HTTPException(404, "Zamestnanec neexistuje")
+    new_password = validate_new_password(data.new_password)
+    obj.password_hash = pwd.hash(new_password)
+    obj.token_version = int(obj.token_version or 0) + 1
+    session.commit()
+    return {"ok": True, "message": "Heslo zamestnanca bolo resetované"}
 
 
 @app.patch("/api/users/{user_id}/active")
