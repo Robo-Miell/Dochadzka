@@ -1,8 +1,10 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 const apiBase = String.fromEnvironment(
   'API_URL',
@@ -328,11 +330,13 @@ class BrandAppTitle extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: Image.asset('assets/app_icon.png', width: 32, height: 32),
+        Image.asset(
+          'assets/miell_quality.png',
+          width: 92,
+          height: 36,
+          fit: BoxFit.contain,
         ),
-        const SizedBox(width: 9),
+        const SizedBox(width: 10),
         Flexible(child: Text(title)),
       ],
     );
@@ -419,6 +423,7 @@ class _EmployeeHomeState extends State<EmployeeHome> {
   List<dynamic> attendance = [];
   List<dynamic> locations = [];
   bool loading = true;
+  bool exportingPdf = false;
   String? error;
   DateTime selectedMonth = monthStart(DateTime.now());
 
@@ -469,6 +474,29 @@ class _EmployeeHomeState extends State<EmployeeHome> {
     }
   }
 
+  Future<void> exportPdf() async {
+    if (exportingPdf) return;
+    setState(() => exportingPdf = true);
+    try {
+      final data = await api.request(
+        '/api/my/export-link?date_from=${isoDate(monthStart(selectedMonth))}&date_to=${isoDate(monthEnd(selectedMonth))}',
+      );
+      final path = data?['url']?.toString();
+      if (path == null || path.isEmpty) {
+        throw Exception('Server nevrátil odkaz na PDF');
+      }
+      final uri = Uri.parse(path.startsWith('http') ? path : '$apiBase$path');
+      final opened = kIsWeb
+          ? await launchUrl(uri, webOnlyWindowName: '_self')
+          : await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) throw Exception('PDF sa nepodarilo otvoriť');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => exportingPdf = false);
+    }
+  }
+
   double get approvedHours {
     double total = 0;
     for (final item in attendance) {
@@ -497,14 +525,25 @@ class _EmployeeHomeState extends State<EmployeeHome> {
     }
   }
 
+  Future<void> openChangePassword() async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const ChangePasswordPage()),
+    );
+    if (changed == true && mounted) {
+      await widget.onLogout();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const BrandAppTitle('Moja dochádzka'),
         actions: [
-          IconButton(onPressed: refresh, icon: const Icon(Icons.refresh)),
-          IconButton(onPressed: widget.onLogout, icon: const Icon(Icons.logout)),
+          IconButton(onPressed: refresh, tooltip: 'Obnoviť', icon: const Icon(Icons.refresh)),
+          IconButton(onPressed: openChangePassword, tooltip: 'Zmeniť heslo', icon: const Icon(Icons.password_outlined)),
+          IconButton(onPressed: widget.onLogout, tooltip: 'Odhlásiť', icon: const Icon(Icons.logout)),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -535,7 +574,7 @@ class _EmployeeHomeState extends State<EmployeeHome> {
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             Text(
-              'Osobné číslo: ${widget.user['personal_number']} • ${widget.user['location_name'] ?? ''}',
+              'Osobné číslo: ${widget.user['personal_number']}',
             ),
             const SizedBox(height: 12),
             MonthSelector(
@@ -547,6 +586,21 @@ class _EmployeeHomeState extends State<EmployeeHome> {
                 selectedMonth = monthStart(DateTime.now());
                 await refresh();
               },
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: exportingPdf ? null : exportPdf,
+                icon: exportingPdf
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.picture_as_pdf_outlined),
+                label: Text(exportingPdf ? 'Generujem PDF…' : 'PDF za ${monthTitle(selectedMonth)}'),
+              ),
             ),
             const SizedBox(height: 10),
             Row(
@@ -589,6 +643,127 @@ class _EmployeeHomeState extends State<EmployeeHome> {
             const SizedBox(height: 90),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class ChangePasswordPage extends StatefulWidget {
+  const ChangePasswordPage({super.key});
+
+  @override
+  State<ChangePasswordPage> createState() => _ChangePasswordPageState();
+}
+
+class _ChangePasswordPageState extends State<ChangePasswordPage> {
+  final currentPassword = TextEditingController();
+  final newPassword = TextEditingController();
+  final confirmPassword = TextEditingController();
+  bool busy = false;
+  String? error;
+
+  @override
+  void dispose() {
+    currentPassword.dispose();
+    newPassword.dispose();
+    confirmPassword.dispose();
+    super.dispose();
+  }
+
+  Future<void> save() async {
+    final current = currentPassword.text;
+    final next = newPassword.text;
+    final confirmation = confirmPassword.text;
+    if (current.isEmpty) {
+      setState(() => error = 'Zadaj aktuálne heslo');
+      return;
+    }
+    if (next.length < 8) {
+      setState(() => error = 'Nové heslo musí mať aspoň 8 znakov');
+      return;
+    }
+    if (next != confirmation) {
+      setState(() => error = 'Nové heslá sa nezhodujú');
+      return;
+    }
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      await api.request(
+        '/api/me/change-password',
+        method: 'POST',
+        body: {'current_password': current, 'new_password': next},
+      );
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Heslo zmenené'),
+          content: const Text('Heslo bolo úspešne zmenené. Prihlás sa znova novým heslom.'),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) setState(() => error = cleanError(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const BrandAppTitle('Zmeniť heslo')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('Pre zmenu hesla zadaj svoje aktuálne heslo a potom nové heslo.'),
+          const SizedBox(height: 18),
+          TextField(
+            controller: currentPassword,
+            obscureText: true,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(labelText: 'Aktuálne heslo'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: newPassword,
+            obscureText: true,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(
+              labelText: 'Nové heslo',
+              helperText: 'Minimálne 8 znakov',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: confirmPassword,
+            obscureText: true,
+            onSubmitted: (_) => save(),
+            decoration: const InputDecoration(labelText: 'Zopakovať nové heslo'),
+          ),
+          if (error != null) ...[
+            const SizedBox(height: 12),
+            Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ],
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: busy ? null : save,
+            icon: busy
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.password_outlined),
+            label: const Text('Zmeniť heslo'),
+          ),
+        ],
       ),
     );
   }
@@ -646,14 +821,14 @@ class AttendanceCard extends StatelessWidget {
     final time = from == null ? '' : '$from${to == null ? '' : ' – $to'}';
     final hours = (item['hours'] as num?)?.toDouble() ?? 0;
     final note = (item['note'] ?? '').toString();
+    final km = (item['km'] as num?)?.toInt() ?? 0;
 
     return Card(
       child: ListTile(
         onTap: onTap,
         title: Text('${displayIsoDate(item['work_date'].toString())} • ${item['type']}'),
         subtitle: Text(
-          '${item['location_name'] ?? ''}\n'
-          '${time.isEmpty ? '' : '$time • '}${hours.toStringAsFixed(2)} h\n'
+          '${time.isEmpty ? '' : '$time • '}${hours.toStringAsFixed(2)} h${km > 0 ? ' • $km km' : ''}\n'
           '${statusText(item['status']?.toString() ?? 'pending')}${note.isEmpty ? '' : ' • $note'}',
         ),
         isThreeLine: true,
@@ -689,9 +864,17 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
   TimeOfDay from = const TimeOfDay(hour: 8, minute: 0);
   TimeOfDay to = const TimeOfDay(hour: 16, minute: 0);
   final breakCtrl = TextEditingController(text: '30');
+  bool deductBreak = true;
+  final kmCtrl = TextEditingController();
   final noteCtrl = TextEditingController();
   bool busy = false;
   String? error;
+  bool billingConfirmed = false;
+
+  List<dynamic> shifts = [];
+  int? selectedShiftId;
+  bool customWorkTime = true;
+  bool loadingShifts = false;
 
   static const types = [
     'Práca',
@@ -703,6 +886,18 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
     'Iné',
   ];
 
+  DateTime get _today {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  DateTime get _earliestAllowedDay => _today.subtract(const Duration(days: 1));
+
+  bool get _dayIsAllowed {
+    final selected = DateTime(day.year, day.month, day.day);
+    return !selected.isBefore(_earliestAllowedDay) && !selected.isAfter(_today);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -710,17 +905,98 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
     if (locationId == null && widget.locations.isNotEmpty) {
       locationId = widget.locations.first['id'] as int;
     }
+    loadShifts();
   }
 
   @override
   void dispose() {
     breakCtrl.dispose();
+    kmCtrl.dispose();
     noteCtrl.dispose();
     super.dispose();
   }
 
+  bool get kmEnabledForLocation {
+    final loc = widget.locations.cast<dynamic?>().firstWhere((x) => x?['id'] == locationId, orElse: () => null);
+    return loc?['km_enabled'] == true;
+  }
+
+  Future<void> loadShifts() async {
+    final loc = locationId;
+    if (loc == null) {
+      if (mounted) {
+        setState(() {
+          shifts = [];
+          selectedShiftId = null;
+          customWorkTime = true;
+          deductBreak = true;
+        });
+      }
+      return;
+    }
+    if (mounted) setState(() => loadingShifts = true);
+    try {
+      final data = await api.request('/api/shifts?location_id=$loc');
+      final items = List<dynamic>.from(data as List);
+      if (!mounted) return;
+      setState(() {
+        shifts = items;
+        if (items.isEmpty) {
+          selectedShiftId = null;
+          customWorkTime = true;
+          deductBreak = true;
+        } else {
+          customWorkTime = false;
+          selectedShiftId = items.first['id'] as int;
+          from = parseTime(items.first['time_from']?.toString(), from);
+          to = parseTime(items.first['time_to']?.toString(), to);
+          breakCtrl.text = '${items.first['break_minutes'] ?? 0}';
+          deductBreak = items.first['deduct_break'] != false;
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        shifts = [];
+        selectedShiftId = null;
+        customWorkTime = true;
+        deductBreak = true;
+      });
+    } finally {
+      if (mounted) setState(() => loadingShifts = false);
+    }
+  }
+
+  void applyShift(int? id) {
+    if (id == null) return;
+    final item = shifts.cast<dynamic?>().firstWhere(
+          (x) => x?['id'] == id,
+          orElse: () => null,
+        );
+    if (item == null) return;
+    setState(() {
+      selectedShiftId = id;
+      from = parseTime(item['time_from']?.toString(), from);
+      to = parseTime(item['time_to']?.toString(), to);
+      breakCtrl.text = '${item['break_minutes'] ?? 0}';
+      deductBreak = item['deduct_break'] != false;
+    });
+  }
+
   Future<void> save() async {
     if (locationId == null) return;
+    if (!_dayIsAllowed) {
+      setState(() {
+        error = 'Dochádzku môžeš zadať iba za dnešný alebo predchádzajúci deň.';
+      });
+      return;
+    }
+    if (!billingConfirmed) {
+      setState(() {
+        error = 'Pred odoslaním musíš potvrdiť správnosť zadaných údajov.';
+      });
+      return;
+    }
     setState(() {
       busy = true;
       error = null;
@@ -736,6 +1012,9 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
           'time_from': (type == 'Práca' || type == 'Lekár') ? formatTime(from) : null,
           'time_to': (type == 'Práca' || type == 'Lekár') ? formatTime(to) : null,
           'break_minutes': type == 'Práca' ? int.tryParse(breakCtrl.text) ?? 0 : 0,
+          'deduct_break': type == 'Práca' ? (customWorkTime || shifts.isEmpty ? true : deductBreak) : false,
+          'km': type == 'Práca' && kmEnabledForLocation ? int.tryParse(kmCtrl.text) ?? 0 : 0,
+          'billing_confirmed': billingConfirmed,
           'note': noteCtrl.text.trim(),
         },
       );
@@ -749,7 +1028,8 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
 
   @override
   Widget build(BuildContext context) {
-    final usesTime = type == 'Práca' || type == 'Lekár';
+    final showManualTime = type == 'Lekár' ||
+        (type == 'Práca' && (customWorkTime || shifts.isEmpty));
     return Scaffold(
       appBar: AppBar(title: const BrandAppTitle('Nový záznam')),
       body: ListView(
@@ -761,14 +1041,27 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
             subtitle: Text(displayDate(day)),
             trailing: const Icon(Icons.calendar_month),
             onTap: () async {
+              final today = _today;
+              final earliest = _earliestAllowedDay;
+              final selected = DateTime(day.year, day.month, day.day);
+              final initial = selected.isBefore(earliest)
+                  ? earliest
+                  : (selected.isAfter(today) ? today : selected);
               final picked = await showDatePicker(
                 context: context,
-                firstDate: DateTime(2020),
-                lastDate: DateTime(2035, 12, 31),
-                initialDate: day,
+                firstDate: earliest,
+                lastDate: today,
+                initialDate: initial,
               );
               if (picked != null) setState(() => day = picked);
             },
+          ),
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text(
+              'Dochádzku je možné zadať iba za dnešný alebo predchádzajúci deň.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
           ),
           DropdownButtonFormField<String>(
             initialValue: type,
@@ -790,9 +1083,65 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
                   ),
                 )
                 .toList(),
-            onChanged: (value) => setState(() => locationId = value),
+            onChanged: (value) async {
+              setState(() { locationId = value; if (!kmEnabledForLocation) kmCtrl.clear(); });
+              await loadShifts();
+            },
           ),
-          if (usesTime) ...[
+          if (type == 'Práca') ...[
+            const SizedBox(height: 12),
+            if (loadingShifts)
+              const LinearProgressIndicator()
+            else if (shifts.isNotEmpty) ...[
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Vlastný časový úsek'),
+                subtitle: Text(
+                  customWorkTime
+                      ? 'Čas zadáš ručne.'
+                      : 'Používa sa prednastavená zmena.',
+                ),
+                value: customWorkTime,
+                onChanged: (value) {
+                  setState(() {
+                    customWorkTime = value;
+                    if (value) deductBreak = true;
+                  });
+                  if (!value && selectedShiftId != null) {
+                    applyShift(selectedShiftId);
+                  }
+                },
+              ),
+              if (!customWorkTime) ...[
+                const SizedBox(height: 4),
+                DropdownButtonFormField<int>(
+                  key: ValueKey('shift-$selectedShiftId-${shifts.length}'),
+                  initialValue: selectedShiftId,
+                  decoration: const InputDecoration(labelText: 'Pracovná zmena'),
+                  items: shifts
+                      .map<DropdownMenuItem<int>>(
+                        (item) => DropdownMenuItem<int>(
+                          value: item['id'] as int,
+                          child: Text(
+                            '${item['name']}  ${item['time_from']} – ${item['time_to']} · prestávka ${item['break_minutes'] ?? 0} min',
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: applyShift,
+                ),
+              ],
+            ] else
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    'Pre túto prevádzku nie sú prednastavené zmeny. Zadaj vlastný čas.',
+                  ),
+                ),
+              ),
+          ],
+          if (showManualTime) ...[
             const SizedBox(height: 12),
             Row(
               children: [
@@ -820,13 +1169,30 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
               ],
             ),
           ],
-          if (type == 'Práca') ...[
+          if (type == 'Práca' && !showManualTime && selectedShiftId != null) ...[
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.schedule),
+                title: Text('Od ${formatTime(from)} do ${formatTime(to)}'),
+                subtitle: Text('Prestávka ${breakCtrl.text} min · ${deductBreak ? 'odpočíta sa z pracovného času' : 'neodpočíta sa z pracovného času'}'),
+              ),
+            ),
+          ],
+          if (type == 'Práca' && showManualTime) ...[
             const SizedBox(height: 12),
             TextField(
               controller: breakCtrl,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Prestávka v minútach'),
+              decoration: const InputDecoration(
+                labelText: 'Prestávka v minútach',
+                helperText: 'Pri vlastnom čase sa prestávka odpočíta z pracovného času.',
+              ),
             ),
+          ],
+          if (type == 'Práca' && kmEnabledForLocation) ...[
+            const SizedBox(height: 12),
+            TextField(controller: kmCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Kilometre (km)', suffixText: 'km')),
           ],
           const SizedBox(height: 12),
           TextField(
@@ -834,13 +1200,28 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
             maxLines: 2,
             decoration: const InputDecoration(labelText: 'Poznámka'),
           ),
+          const SizedBox(height: 14),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            value: billingConfirmed,
+            onChanged: busy
+                ? null
+                : (value) => setState(() {
+                      billingConfirmed = value ?? false;
+                      if (billingConfirmed) error = null;
+                    }),
+            title: const Text(
+              'Potvrdzujem správnosť zadaných údajov a beriem na vedomie ich použitie ako podklad pre fakturáciu.',
+            ),
+          ),
           if (error != null) ...[
             const SizedBox(height: 12),
             Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ],
           const SizedBox(height: 18),
           FilledButton(
-            onPressed: busy ? null : save,
+            onPressed: busy || !billingConfirmed ? null : save,
             child: busy
                 ? const SizedBox(
                     width: 22,
@@ -1094,7 +1475,7 @@ class _AdminHomeState extends State<AdminHome> {
               leading: CircleAvatar(child: Text((item['name']?.toString() ?? '?').substring(0, 1))),
               title: Text(item['name']?.toString() ?? ''),
               subtitle: Text(
-                '${item['personal_number']} • ${item['login']}\n${item['location_name'] ?? ''} • ${active ? 'Aktívny' : 'Neaktívny'}',
+                '${item['personal_number']} • ${item['login']}\n${(item['location_names'] is List && (item['location_names'] as List).isNotEmpty) ? (item['location_names'] as List).join(', ') : (item['location_name'] ?? '')} • ${active ? 'Aktívny' : 'Neaktívny'}',
               ),
               isThreeLine: true,
               trailing: PopupMenuButton<String>(
@@ -1136,7 +1517,7 @@ class _AdminHomeState extends State<AdminHome> {
               leading: const CircleAvatar(child: Icon(Icons.factory_outlined)),
               title: Text(item['name']?.toString() ?? ''),
               subtitle: Text(
-                [item['city'], item['address']]
+                [item['city'], item['address'], item['km_enabled'] == true ? 'KM povolené' : null]
                     .where((value) => (value ?? '').toString().isNotEmpty)
                     .join(' • '),
               ),
@@ -1233,7 +1614,7 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
   late final TextEditingController name;
   late final TextEditingController login;
   final password = TextEditingController();
-  int? locationId;
+  final Set<int> locationIds = <int>{};
   bool active = true;
   bool busy = false;
   String? error;
@@ -1247,11 +1628,15 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
     personalNumber = TextEditingController(text: item?['personal_number']?.toString() ?? '');
     name = TextEditingController(text: item?['name']?.toString() ?? '');
     login = TextEditingController(text: item?['login']?.toString() ?? '');
-    locationId = item?['location_id'] as int?;
-    active = item?['active'] as bool? ?? true;
-    if (locationId == null && widget.locations.isNotEmpty) {
-      locationId = widget.locations.first['id'] as int;
+    final rawLocationIds = item?['location_ids'];
+    if (rawLocationIds is List) {
+      locationIds.addAll(rawLocationIds.whereType<num>().map((x) => x.toInt()));
     }
+    final legacyLocationId = item?['location_id'];
+    if (locationIds.isEmpty && legacyLocationId is num) {
+      locationIds.add(legacyLocationId.toInt());
+    }
+    active = item?['active'] as bool? ?? true;
   }
 
   @override
@@ -1264,7 +1649,10 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
   }
 
   Future<void> save() async {
-    if (locationId == null) return;
+    if (locationIds.isEmpty) {
+      setState(() => error = 'Vyber aspoň jednu prevádzku');
+      return;
+    }
     setState(() {
       busy = true;
       error = null;
@@ -1274,10 +1662,10 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
         'personal_number': personalNumber.text.trim(),
         'name': name.text.trim(),
         'login': login.text.trim(),
-        'location_id': locationId,
+        'location_ids': locationIds.toList()..sort(),
         'active': active,
       };
-      if (!editing || password.text.isNotEmpty) body['password'] = password.text;
+      if (!editing) body['password'] = password.text;
       await api.request(
         editing ? '/api/users/${widget.employee!['id']}' : '/api/users',
         method: editing ? 'PATCH' : 'POST',
@@ -1288,6 +1676,21 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
       if (mounted) setState(() => error = cleanError(e));
     } finally {
       if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> resetPassword() async {
+    if (!editing) return;
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AdminResetPasswordPage(employee: widget.employee!),
+      ),
+    );
+    if (changed == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Heslo zamestnanca bolo resetované.')),
+      );
     }
   }
 
@@ -1306,27 +1709,60 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
           const SizedBox(height: 12),
           TextField(controller: login, decoration: const InputDecoration(labelText: 'Login')),
           const SizedBox(height: 12),
-          TextField(
-            controller: password,
-            obscureText: true,
-            decoration: InputDecoration(
-              labelText: editing ? 'Nové heslo (nepovinné)' : 'Heslo',
-              helperText: editing ? 'Prázdne pole = heslo sa nemení' : null,
+          if (!editing)
+            TextField(
+              controller: password,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Heslo',
+                helperText: 'Minimálne 8 znakov',
+              ),
+            )
+          else
+            OutlinedButton.icon(
+              onPressed: resetPassword,
+              icon: const Icon(Icons.password_outlined),
+              label: const Text('Resetovať heslo zamestnanca'),
+            ),
+          const SizedBox(height: 12),
+          const Text(
+            'Prevádzky',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          Card(
+            margin: EdgeInsets.zero,
+            child: Column(
+              children: widget.locations.map<Widget>((item) {
+                final id = (item['id'] as num).toInt();
+                final selected = locationIds.contains(id);
+                return CheckboxListTile(
+                  dense: true,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: Text(item['name'].toString()),
+                  subtitle: (item['city'] ?? '').toString().isEmpty
+                      ? null
+                      : Text(item['city'].toString()),
+                  value: selected,
+                  onChanged: (value) {
+                    setState(() {
+                      if (value == true) {
+                        locationIds.add(id);
+                      } else {
+                        locationIds.remove(id);
+                      }
+                    });
+                  },
+                );
+              }).toList(),
             ),
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<int>(
-            initialValue: locationId,
-            decoration: const InputDecoration(labelText: 'Prevádzka'),
-            items: widget.locations
-                .map<DropdownMenuItem<int>>(
-                  (item) => DropdownMenuItem<int>(
-                    value: item['id'] as int,
-                    child: Text(item['name'].toString()),
-                  ),
-                )
-                .toList(),
-            onChanged: (value) => setState(() => locationId = value),
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text(
+              'Zamestnanec si pri zadávaní dochádzky vyberie jednu z priradených prevádzok.',
+              style: TextStyle(fontSize: 12),
+            ),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -1349,6 +1785,103 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
   }
 }
 
+class AdminResetPasswordPage extends StatefulWidget {
+  final Map<String, dynamic> employee;
+  const AdminResetPasswordPage({super.key, required this.employee});
+
+  @override
+  State<AdminResetPasswordPage> createState() => _AdminResetPasswordPageState();
+}
+
+class _AdminResetPasswordPageState extends State<AdminResetPasswordPage> {
+  final password = TextEditingController();
+  final confirmation = TextEditingController();
+  bool busy = false;
+  String? error;
+
+  @override
+  void dispose() {
+    password.dispose();
+    confirmation.dispose();
+    super.dispose();
+  }
+
+  Future<void> save() async {
+    final next = password.text;
+    if (next.length < 8) {
+      setState(() => error = 'Nové heslo musí mať aspoň 8 znakov');
+      return;
+    }
+    if (next != confirmation.text) {
+      setState(() => error = 'Heslá sa nezhodujú');
+      return;
+    }
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      await api.request(
+        '/api/users/${widget.employee['id']}/reset-password',
+        method: 'POST',
+        body: {'new_password': next},
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) setState(() => error = cleanError(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final employeeName = widget.employee['name']?.toString() ?? '';
+    final employeeLogin = widget.employee['login']?.toString() ?? '';
+    return Scaffold(
+      appBar: AppBar(title: const BrandAppTitle('Resetovať heslo')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(employeeName, style: Theme.of(context).textTheme.titleLarge),
+          Text('Login: $employeeLogin'),
+          const SizedBox(height: 18),
+          TextField(
+            controller: password,
+            obscureText: true,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(
+              labelText: 'Nové heslo',
+              helperText: 'Minimálne 8 znakov',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: confirmation,
+            obscureText: true,
+            onSubmitted: (_) => save(),
+            decoration: const InputDecoration(labelText: 'Zopakovať nové heslo'),
+          ),
+          const SizedBox(height: 8),
+          const Text('Po resete sa zamestnanec odhlási zo všetkých aktívnych prihlásení.'),
+          if (error != null) ...[
+            const SizedBox(height: 12),
+            Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ],
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: busy ? null : save,
+            icon: busy
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.password_outlined),
+            label: const Text('Resetovať heslo'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class AdminLocationPage extends StatefulWidget {
   final Map<String, dynamic>? location;
   const AdminLocationPage({super.key, this.location});
@@ -1361,6 +1894,7 @@ class _AdminLocationPageState extends State<AdminLocationPage> {
   late final TextEditingController name;
   late final TextEditingController city;
   late final TextEditingController address;
+  bool kmEnabled = false;
   bool busy = false;
   String? error;
 
@@ -1372,6 +1906,7 @@ class _AdminLocationPageState extends State<AdminLocationPage> {
     name = TextEditingController(text: widget.location?['name']?.toString() ?? '');
     city = TextEditingController(text: widget.location?['city']?.toString() ?? '');
     address = TextEditingController(text: widget.location?['address']?.toString() ?? '');
+    kmEnabled = widget.location?['km_enabled'] == true;
   }
 
   @override
@@ -1395,6 +1930,7 @@ class _AdminLocationPageState extends State<AdminLocationPage> {
           'name': name.text.trim(),
           'city': city.text.trim(),
           'address': address.text.trim(),
+          'km_enabled': kmEnabled,
         },
       );
       if (mounted) Navigator.pop(context, true);
@@ -1419,6 +1955,8 @@ class _AdminLocationPageState extends State<AdminLocationPage> {
           TextField(controller: city, decoration: const InputDecoration(labelText: 'Mesto')),
           const SizedBox(height: 12),
           TextField(controller: address, decoration: const InputDecoration(labelText: 'Adresa')),
+          const SizedBox(height: 8),
+          CheckboxListTile(contentPadding: EdgeInsets.zero, title: const Text('Povoliť zadávanie kilometrov'), subtitle: const Text('Zamestnanec pri tejto prevádzke uvidí pole KM.'), value: kmEnabled, onChanged: (value) => setState(() => kmEnabled = value ?? false)),
           if (error != null) ...[
             const SizedBox(height: 12),
             Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
@@ -1460,6 +1998,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   TimeOfDay from = const TimeOfDay(hour: 8, minute: 0);
   TimeOfDay to = const TimeOfDay(hour: 16, minute: 0);
   late final TextEditingController breakCtrl;
+  bool deductBreak = true;
+  late final TextEditingController kmCtrl;
   late final TextEditingController noteCtrl;
   bool busy = false;
   String? error;
@@ -1489,14 +2029,22 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     from = parseTime(item?['time_from']?.toString(), const TimeOfDay(hour: 8, minute: 0));
     to = parseTime(item?['time_to']?.toString(), const TimeOfDay(hour: 16, minute: 0));
     breakCtrl = TextEditingController(text: '${item?['break_minutes'] ?? 30}');
+    deductBreak = item?['deduct_break'] != false;
+    kmCtrl = TextEditingController(text: '${item?['km'] ?? 0}');
     noteCtrl = TextEditingController(text: item?['note']?.toString() ?? '');
   }
 
   @override
   void dispose() {
     breakCtrl.dispose();
+    kmCtrl.dispose();
     noteCtrl.dispose();
     super.dispose();
+  }
+
+  bool get kmEnabledForLocation {
+    final loc = widget.locations.cast<dynamic?>().firstWhere((x) => x?['id'] == locationId, orElse: () => null);
+    return loc?['km_enabled'] == true;
   }
 
   Future<void> save() async {
@@ -1514,6 +2062,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
         'time_from': (type == 'Práca' || type == 'Lekár') ? formatTime(from) : null,
         'time_to': (type == 'Práca' || type == 'Lekár') ? formatTime(to) : null,
         'break_minutes': type == 'Práca' ? int.tryParse(breakCtrl.text) ?? 0 : 0,
+        'deduct_break': type == 'Práca' ? deductBreak : false,
+        'km': type == 'Práca' && kmEnabledForLocation ? int.tryParse(kmCtrl.text) ?? 0 : 0,
         'note': noteCtrl.text.trim(),
       };
 
@@ -1594,7 +2144,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
                   ),
                 )
                 .toList(),
-            onChanged: (value) => setState(() => locationId = value),
+            onChanged: (value) => setState(() { locationId = value; if (!kmEnabledForLocation) kmCtrl.text = '0'; }),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
@@ -1649,6 +2199,16 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(labelText: 'Prestávka v minútach'),
             ),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Odpočítať prestávku z pracovného času'),
+              value: deductBreak,
+              onChanged: (value) => setState(() => deductBreak = value ?? true),
+            ),
+            if (kmEnabledForLocation) ...[
+              const SizedBox(height: 12),
+              TextField(controller: kmCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Kilometre (km)', suffixText: 'km')),
+            ],
           ],
           const SizedBox(height: 12),
           TextField(
