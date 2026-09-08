@@ -125,8 +125,18 @@
 
 <dialog id="empDialog"><div class="modal">
   <div class="top"><h3 id="empTitle">Nový zamestnanec</h3><button data-close="empDialog" class="ghost">Zavrieť</button></div>
-  <div class="grid"><div><label>Osobné číslo</label><input id="en"></div><div><label>Meno</label><input id="ename"></div><div><label>Login</label><input id="elogin" autocomplete="off"></div><div><label>Heslo</label><input id="epass" type="password" autocomplete="new-password"><div id="passHint" class="hint"></div></div><div style="grid-column:1/-1"><label>Prevádzky</label><div id="elocs" class="location-checks"></div><div class="hint">Vyber jednu alebo viac prevádzok. Zamestnanec si pri zadávaní dochádzky zvolí konkrétnu prevádzku.</div></div><div><label>Stav</label><select id="eactive"><option value="true">Aktívny</option><option value="false">Neaktívny</option></select></div></div>
+  <div class="grid"><div><label>Osobné číslo</label><input id="en"></div><div><label>Meno</label><input id="ename"></div><div><label>Login</label><input id="elogin" autocomplete="off"></div><div id="epassWrap"><label>Heslo</label><input id="epass" type="password" autocomplete="new-password"><div id="passHint" class="hint">Minimálne 8 znakov.</div></div><div id="resetPassWrap" class="hidden"><label>Heslo</label><button id="openResetPass" type="button" class="warn" style="width:100%">Resetovať heslo</button><div class="hint">Po resete bude zamestnanec odhlásený zo všetkých aktívnych prihlásení.</div></div><div style="grid-column:1/-1"><label>Prevádzky</label><div id="elocs" class="location-checks"></div><div class="hint">Vyber jednu alebo viac prevádzok. Zamestnanec si pri zadávaní dochádzky zvolí konkrétnu prevádzku.</div></div><div><label>Stav</label><select id="eactive"><option value="true">Aktívny</option><option value="false">Neaktívny</option></select></div></div>
   <p id="empError" class="error"></p><button id="saveEmp" class="primary" style="margin-top:8px">Uložiť</button>
+</div></dialog>
+
+<dialog id="resetPassDialog"><div class="modal">
+  <div class="top"><h3>Resetovať heslo</h3><button data-close="resetPassDialog" class="ghost">Zavrieť</button></div>
+  <p class="muted" id="resetPassEmployee"></p>
+  <label>Nové heslo</label><input id="resetPass1" type="password" autocomplete="new-password">
+  <label>Zopakovať nové heslo</label><input id="resetPass2" type="password" autocomplete="new-password">
+  <div class="hint">Minimálne 8 znakov. Po resete sa musí zamestnanec prihlásiť novým heslom.</div>
+  <p id="resetPassError" class="error"></p>
+  <button id="saveResetPass" class="primary" style="margin-top:8px">Resetovať heslo</button>
 </div></dialog>
 
 <dialog id="locDialog"><div class="modal">
@@ -406,7 +416,8 @@ function renderEmployeeLocationChoices(selectedIds=[]){
 
 function openEmployee(id=null){
   empEditId=id;$("empError").textContent="";const u=id?users.find(x=>x.id===id):null;
-  $("empTitle").textContent=u?"Upraviť zamestnanca":"Nový zamestnanec";$("en").value=u?.personal_number||"";$("ename").value=u?.name||"";$("elogin").value=u?.login||"";$("epass").value="";$("passHint").textContent=u?"Nechaj prázdne, ak heslo nechceš meniť.":"Heslo je pri novom zamestnancovi povinné.";$("eactive").value=String(u?.active??true);
+  $("empTitle").textContent=u?"Upraviť zamestnanca":"Nový zamestnanec";$("en").value=u?.personal_number||"";$("ename").value=u?.name||"";$("elogin").value=u?.login||"";$("epass").value="";$("passHint").textContent="Minimálne 8 znakov.";$("eactive").value=String(u?.active??true);
+  $("epassWrap").classList.toggle("hidden",!!u);$("resetPassWrap").classList.toggle("hidden",!u);
   renderEmployeeLocationChoices(employeeLocationIds(u));
   $("empDialog").showModal();
 }
@@ -415,9 +426,22 @@ async function saveEmployee(){
     const locationIds=[...document.querySelectorAll(".empLocCheck:checked")].map(x=>Number(x.value));
     if(!locationIds.length)throw new Error("Vyber aspoň jednu prevádzku");
     const body={personal_number:$("en").value.trim(),name:$("ename").value.trim(),login:$("elogin").value.trim(),location_ids:locationIds,active:$("eactive").value==="true"};
-    if($("epass").value||!empEditId)body.password=$("epass").value;
+    if(!empEditId){if($("epass").value.length<8)throw new Error("Heslo musí mať aspoň 8 znakov");body.password=$("epass").value;}
     await api(empEditId?`/api/users/${empEditId}`:"/api/users",{method:empEditId?"PATCH":"POST",body:JSON.stringify(body)});$("empDialog").close();await refresh();
   }catch(e){$("empError").textContent=e.message}
+}
+function openResetPassword(){
+  if(!empEditId)return;
+  const u=users.find(x=>x.id===empEditId);$("resetPassEmployee").textContent=u?`${u.name} (${u.login})`:"";$("resetPass1").value="";$("resetPass2").value="";$("resetPassError").textContent="";$("resetPassDialog").showModal();
+}
+async function saveResetPassword(){
+  $("resetPassError").textContent="";try{
+    const p1=$("resetPass1").value,p2=$("resetPass2").value;
+    if(p1.length<8)throw new Error("Nové heslo musí mať aspoň 8 znakov");
+    if(p1!==p2)throw new Error("Heslá sa nezhodujú");
+    await api(`/api/users/${empEditId}/reset-password`,{method:"POST",body:JSON.stringify({new_password:p1})});
+    $("resetPassDialog").close();alert("Heslo bolo resetované. Zamestnanec sa musí prihlásiť novým heslom.");
+  }catch(e){$("resetPassError").textContent=e.message}
 }
 
 function reportFrequencyText(l){
@@ -586,7 +610,7 @@ async function deleteAttendance(id){const a=attendance.find(x=>x.id===id);if(!co
 $("loginBtn").onclick=login;$("password").onkeydown=e=>{if(e.key==="Enter")login()};$("logout").onclick=()=>{localStorage.removeItem("dochadzka_token");location.reload()};
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.add("hidden"));$(b.dataset.tab).classList.remove("hidden");document.querySelectorAll("[data-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active")});
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).close());
-$("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("saveLoc").onclick=saveLocation;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;$("aloc").onchange=updateAttTimeFields;$("addLocShift").onclick=()=>{locShiftDraft.push(newShiftDraft());renderLocShiftRows()};$("lreportfrequency").onchange=updateReportingVisibility;$("sendReportNow").onclick=sendReportNow;
+$("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("openResetPass").onclick=openResetPassword;$("saveResetPass").onclick=saveResetPassword;$("saveLoc").onclick=saveLocation;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;$("aloc").onchange=updateAttTimeFields;$("addLocShift").onclick=()=>{locShiftDraft.push(newShiftDraft());renderLocShiftRows()};$("lreportfrequency").onchange=updateReportingVisibility;$("sendReportNow").onclick=sendReportNow;
 ["fFrom","fTo","fLoc"].forEach(id=>$(id).oninput=renderAttendance);
 
 $("fUserSearch").onfocus=()=>showMultiResults("f");
