@@ -891,7 +891,15 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
     return DateTime(now.year, now.month, now.day);
   }
 
-  DateTime get _earliestAllowedDay => _today.subtract(const Duration(days: 1));
+  bool get _previousDayStillAllowed {
+    final now = DateTime.now();
+    // The whole 09:00 minute is allowed; from 09:01 onward yesterday is blocked.
+    return now.hour < 9 || (now.hour == 9 && now.minute == 0);
+  }
+
+  DateTime get _earliestAllowedDay => _previousDayStillAllowed
+      ? _today.subtract(const Duration(days: 1))
+      : _today;
 
   bool get _dayIsAllowed {
     final selected = DateTime(day.year, day.month, day.day);
@@ -987,7 +995,9 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
     if (locationId == null) return;
     if (!_dayIsAllowed) {
       setState(() {
-        error = 'Dochádzku môžeš zadať iba za dnešný alebo predchádzajúci deň.';
+        error = _previousDayStillAllowed
+            ? 'Dochádzku môžeš zadať iba za dnešný alebo predchádzajúci deň.'
+            : 'Dochádzku za predchádzajúci deň je možné zadať iba do 09:00. Teraz môžeš zadať iba dnešný deň.';
       });
       return;
     }
@@ -1059,7 +1069,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
           const Padding(
             padding: EdgeInsets.only(bottom: 8),
             child: Text(
-              'Dochádzku je možné zadať iba za dnešný alebo predchádzajúci deň.',
+              'Dnešnú dochádzku môžeš zadať kedykoľvek. Dochádzku za predchádzajúci deň je možné zadať iba do 09:00 nasledujúceho dňa.',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ),
