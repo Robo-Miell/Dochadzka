@@ -324,14 +324,36 @@ def validate_new_password(value: str) -> str:
 
 
 def validate_employee_attendance_date(work_date: date) -> None:
-    """Employee may create attendance only for today or the previous calendar day."""
-    today_local = datetime.now(ZoneInfo(REPORTING_TIMEZONE)).date()
-    earliest = today_local - timedelta(days=1)
-    if work_date < earliest or work_date > today_local:
+    """
+    Employee attendance date rules (Europe/Bratislava):
+    - today is always allowed,
+    - previous calendar day is allowed only through 09:00 (until 09:00:59),
+    - older and future dates are blocked.
+    """
+    zone = ZoneInfo(REPORTING_TIMEZONE)
+    now_local = datetime.now(zone)
+    today_local = now_local.date()
+    yesterday = today_local - timedelta(days=1)
+
+    if work_date == today_local:
+        return
+
+    if work_date == yesterday:
+        # The 09:00 minute is still allowed; from 09:01 onward it is blocked.
+        cutoff = datetime.combine(today_local, datetime.min.time(), tzinfo=zone).replace(
+            hour=9, minute=1
+        )
+        if now_local < cutoff:
+            return
         raise HTTPException(
             400,
-            "Dochádzku môžeš zadať iba za dnešný alebo predchádzajúci kalendárny deň.",
+            "Dochádzku za predchádzajúci deň môžeš zadať najneskôr do 09:00 dnešného dňa.",
         )
+
+    raise HTTPException(
+        400,
+        "Dochádzku môžeš zadať iba za dnešný deň; predchádzajúci deň je dostupný len do 09:00.",
+    )
 
 
 def get_current_user(
