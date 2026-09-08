@@ -114,7 +114,7 @@
         </div>
         <div class="row" style="margin-top:14px">
           <button id="downloadPdf" class="primary">Stiahnuť PDF</button>
-          <button id="downloadXls" class="ghost">Stiahnuť XLS</button>
+          <button id="downloadXls" class="ghost">Stiahnuť XLSX</button>
           <button id="downloadCsv" class="ghost">Stiahnuť CSV</button>
         </div>
       </div>
@@ -649,7 +649,7 @@ async function downloadExport(endpoint,filename){
   }catch(e){alert(e.message||"Export zlyhal")}
 }
 $("downloadPdf").onclick=()=>downloadExport("/api/export.pdf","dochadzka_export.pdf");
-$("downloadXls").onclick=()=>downloadExport("/api/export.xls","dochadzka_export.xls");
+$("downloadXls").onclick=()=>downloadExport("/api/export.xlsx","dochadzka_export.xlsx");
 $("downloadCsv").onclick=()=>downloadExport("/api/export.csv","dochadzka_export.csv");
 const m=new Date(),first=new Date(m.getFullYear(),m.getMonth(),1),last=new Date(m.getFullYear(),m.getMonth()+1,0);const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;["fFrom","eFrom"].forEach(id=>$(id).value=localDate(first));["fTo","eTo"].forEach(id=>$(id).value=localDate(last));
 if(token){$("loginCard").classList.add("hidden");$("app").classList.remove("hidden");refresh().catch(()=>{localStorage.removeItem("dochadzka_token");location.reload()})}
