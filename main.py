@@ -7,6 +7,7 @@ import os
 import re
 import reportlab
 import xlwt
+import xlsxwriter
 from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from email.utils import formataddr
@@ -282,7 +283,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.13")
+app = FastAPI(title="Dochádzka API", version="5.13.3")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -664,7 +665,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.13", "admin": "/admin", "docs": "/docs"}
+    return {"name": "Dochádzka API", "version": "5.13.3", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -1545,26 +1546,34 @@ def build_employee_pdf(user: User, rows, date_from: date, date_to: date):
     return buf.getvalue()
 
 
-def build_admin_xls(
+def build_admin_xlsx(
     rows,
     date_from: Optional[date],
     date_to: Optional[date],
     user_label: str,
     location_label: str,
 ):
-    if len(rows) > 65000:
-        raise HTTPException(400, "Export XLS podporuje najviac 65 000 záznamov naraz. Zúž obdobie alebo filter.")
-    wb = xlwt.Workbook(encoding="utf-8")
-    ws = wb.add_sheet("Dochádzka", cell_overwrite_ok=True)
-    title_style = xlwt.easyxf("font: bold on, height 320; align: vert centre;")
-    label_style = xlwt.easyxf("font: bold on; pattern: pattern solid, fore_colour ice_blue;")
-    header_style = xlwt.easyxf("font: bold on, colour white; pattern: pattern solid, fore_colour green; align: horiz center, vert centre; borders: bottom thin, left thin, right thin, top thin;")
-    cell_style = xlwt.easyxf("align: vert top; borders: bottom thin, left thin, right thin, top thin;")
-    center_style = xlwt.easyxf("align: horiz center, vert top; borders: bottom thin, left thin, right thin, top thin;")
-    hours_style = xlwt.easyxf("align: horiz right, vert top; borders: bottom thin, left thin, right thin, top thin;", num_format_str="0.00")
-    summary_style = xlwt.easyxf("font: bold on; pattern: pattern solid, fore_colour light_green;")
+    """Modern XLSX export with native Excel AutoFilter on the attendance table."""
+    buf = io.BytesIO()
+    wb = xlsxwriter.Workbook(buf, {"in_memory": True})
+    ws = wb.add_worksheet("Dochádzka")
 
-    ws.write_merge(0, 0, 0, 5, "MIELL Dochádzka - Export", title_style)
+    title_style = wb.add_format({
+        "bold": True, "font_size": 16, "valign": "vcenter",
+    })
+    label_style = wb.add_format({
+        "bold": True, "bg_color": "#DDEBF7",
+    })
+    header_style = wb.add_format({
+        "bold": True, "font_color": "#FFFFFF", "bg_color": "#348C2E",
+        "align": "center", "valign": "vcenter", "border": 1,
+    })
+    cell_style = wb.add_format({"valign": "top", "border": 1})
+    center_style = wb.add_format({"align": "center", "valign": "top", "border": 1})
+    hours_style = wb.add_format({"align": "right", "valign": "top", "border": 1, "num_format": "0.00"})
+    summary_style = wb.add_format({"bold": True, "bg_color": "#E2F0D9"})
+
+    ws.merge_range(0, 0, 0, 5, "MIELL Dochádzka - Export", title_style)
     ws.write(2, 0, "Obdobie", label_style); ws.write(2, 1, export_period_text(date_from, date_to))
     ws.write(3, 0, "Zamestnanec", label_style); ws.write(3, 1, user_label)
     ws.write(4, 0, "Prevádzka", label_style); ws.write(4, 1, location_label)
@@ -1585,12 +1594,20 @@ def build_admin_xls(
             STATUS_SK.get(a.status, a.status), a.note or "",
         ]
         for c, value in enumerate(values):
-            if c in {9, 10}:
-                ws.write(r, c, value, hours_style)
+            if c == 9:
+                ws.write_number(r, c, float(value or 0), hours_style)
+            elif c == 10:
+                ws.write_number(r, c, int(value or 0), center_style)
             elif c in {0, 5, 6, 7, 8, 11, 12}:
                 ws.write(r, c, value, center_style)
             else:
                 ws.write(r, c, value, cell_style)
+
+    # Automatický filter na celej dátovej tabuľke. Po otvorení sú v hlavičke
+    # okamžite dostupné Excel filter šípky pre každý stĺpec.
+    if rows:
+        last_data_row = header_row + len(rows)
+        ws.autofilter(header_row, 0, last_data_row, len(headers) - 1)
 
     end_row = header_row + 1 + len(rows) + 1
     approved_hours = sum(attendance_hours(a) for a in rows if a.status == "approved")
@@ -1601,21 +1618,16 @@ def build_admin_xls(
     ws.write(end_row, 3, f"Evidované hodiny spolu: {all_hours:.2f}", summary_style)
     ws.write(end_row, 4, f"KM spolu: {sum(int(a.km or 0) for a in rows)}", summary_style)
 
-    # Stĺpec D (Prevádzka) prispôsob šírke najdlhšieho názvu prevádzky,
-    # aby bol celý názov v XLS exporte čitateľný.
     location_col_width = max(30, max((len(a.location.name or "") for a in rows), default=0) + 3)
     location_col_width = min(80, location_col_width)
-
     widths = [13, 16, 24, location_col_width, 18, 9, 9, 15, 20, 18, 10, 20, 22, 22, 42]
     for i, w in enumerate(widths):
-        ws.col(i).width = min(255, w) * 256
-    ws.panes_frozen = True
-    ws.horz_split_pos = header_row + 1
+        ws.set_column(i, i, w)
 
-    buf = io.BytesIO()
-    wb.save(buf)
+    ws.freeze_panes(header_row + 1, 0)
+    ws.set_row(header_row, 22)
+    wb.close()
     return buf.getvalue()
-
 
 
 
@@ -2204,6 +2216,7 @@ def export_pdf(
     )
 
 
+@app.get("/api/export.xlsx")
 @app.get("/api/export.xls")
 def export_xls(
     date_from: Optional[date] = Query(None),
@@ -2221,11 +2234,11 @@ def export_xls(
     user_label, location_label = resolve_filter_labels(
         session, user_id, location_id, parsed_user_ids
     )
-    payload = build_admin_xls(rows, date_from, date_to, user_label, location_label)
+    payload = build_admin_xlsx(rows, date_from, date_to, user_label, location_label)
     return StreamingResponse(
         io.BytesIO(payload),
-        media_type="application/vnd.ms-excel",
-        headers={"Content-Disposition": 'attachment; filename="dochadzka_export.xls"'},
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="dochadzka_export.xlsx"'},
     )
 
 
