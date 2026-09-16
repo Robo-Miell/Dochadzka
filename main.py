@@ -54,6 +54,11 @@ REPORTING_TIMEZONE = os.getenv("REPORTING_TIMEZONE", "Europe/Bratislava")
 
 engine_args = {"connect_args": {"check_same_thread": False}} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, **engine_args)
+if engine.dialect.name == 'postgresql':
+    from sqlalchemy import event
+    @event.listens_for(engine, 'begin')
+    def attendance_schema(connection):
+        connection.exec_driver_sql('SET LOCAL search_path TO public')
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

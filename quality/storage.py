@@ -37,8 +37,6 @@ class Connection:
         import psycopg2
         from psycopg2.extras import DictCursor
         self.con = psycopg2.connect(database_url().replace('postgresql+psycopg2:', 'postgresql:'), cursor_factory=DictCursor)
-        with self.con.cursor() as cur:
-            cur.execute('SET search_path TO miell_quality')
 
     def execute(self, sql, args=()):
         import psycopg2
@@ -57,6 +55,9 @@ class Connection:
             sql = sql.rstrip().rstrip(';') + ' RETURNING id'
         cur = self.con.cursor()
         try:
+            # Transaction-local routing must not leak through Neon/PgBouncer.
+            # Repeat after commit because handlers may read on the same connection.
+            cur.execute('SET LOCAL search_path TO miell_quality')
             cur.execute(sql, args)
         except psycopg2.IntegrityError as exc:
             self.con.rollback()
