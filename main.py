@@ -1,3 +1,5 @@
+from runtime_settings import DATA_DIR, verify_password
+import sys
 import base64
 import csv
 import hmac
@@ -40,7 +42,7 @@ JWT_SECRET = os.getenv("JWT_SECRET", "change-this-secret")
 JWT_ALG = "HS256"
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "10080"))
 ADMIN_LOGIN = os.getenv("ADMIN_LOGIN", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 ADMIN_NAME = os.getenv("ADMIN_NAME", "Administrátor")
 
 GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "").strip()
@@ -283,7 +285,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="Dochádzka API", version="5.14")
+app = FastAPI(title="MIELL — Dochádzka a kvalita", version="1.0")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -365,6 +367,8 @@ def get_current_user(
     token = authorization.split(" ", 1)[1]
     try:
         data = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+        if data.get("scope"):
+            raise ValueError("Scoped token is not an access token")
         uid = int(data["sub"])
     except (JWTError, KeyError, ValueError):
         raise HTTPException(401, "Neplatný token")
@@ -668,9 +672,16 @@ def ensure_schema_columns():
 def startup():
     Base.metadata.create_all(engine)
     ensure_schema_columns()
+    from quality.integration import configure, import_initial_users
+    configure(DATA_DIR)
+    import_initial_users(sys.modules[__name__])
     with SessionLocal() as session:
         admin = session.scalar(select(User).where(User.login == ADMIN_LOGIN))
-        if not admin:
+        any_admin = session.scalar(select(User).where(User.role == 'admin', User.active == True))
+        if not admin and not any_admin:
+            if not ADMIN_PASSWORD:
+                raise RuntimeError('Pre prázdnu inštaláciu nastav ADMIN_PASSWORD (aspoň 8 znakov). Existujúci reporting používa importované účty.')
+            validate_new_password(ADMIN_PASSWORD)
             admin = User(
                 personal_number="ADMIN",
                 name=ADMIN_NAME,
@@ -698,7 +709,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.14", "admin": "/admin", "docs": "/docs"}
+    return FileResponse(os.path.join(static_dir, "portal.html"))
 
 
 @app.get("/admin")
@@ -717,7 +728,7 @@ def brand_logo():
 @app.post("/api/auth/login")
 def login(data: LoginIn, session: Session = Depends(db)):
     user = session.scalar(select(User).where(User.login == data.login.strip()))
-    if not user or not user.active or not pwd.verify(data.password, user.password_hash):
+    if not user or not user.active or not verify_password(data.password, user.password_hash, pwd):
         raise HTTPException(401, "Nesprávny login alebo heslo")
     return {"access_token": token_for(user), "token_type": "bearer", "user": serialize_user(user)}
 
@@ -733,12 +744,10 @@ def change_my_password(
     session: Session = Depends(db),
     user: User = Depends(get_current_user),
 ):
-    if user.role != "employee":
-        raise HTTPException(403, "Zmenu hesla v aplikácii môže vykonať zamestnanec")
-    if not pwd.verify(data.current_password or "", user.password_hash):
+    if not verify_password(data.current_password or "", user.password_hash, pwd):
         raise HTTPException(400, "Aktuálne heslo nie je správne")
     new_password = validate_new_password(data.new_password)
-    if pwd.verify(new_password, user.password_hash):
+    if verify_password(new_password, user.password_hash, pwd):
         raise HTTPException(400, "Nové heslo musí byť odlišné od aktuálneho hesla")
     user.password_hash = pwd.hash(new_password)
     user.token_version = int(user.token_version or 0) + 1
@@ -847,6 +856,10 @@ def delete_location(
     obj = session.get(Location, location_id)
     if not obj:
         raise HTTPException(404, "Prevádzka neexistuje")
+    from quality.integration import legacy
+    with legacy.db() as quality_db:
+        if quality_db.execute('SELECT 1 FROM jobs WHERE location_id=? LIMIT 1',(location_id,)).fetchone():
+            raise HTTPException(409, 'Prevádzku používa zákazka kvality. Najprv zmeň prevádzku zákazky.')
     if session.scalar(select(Shift.id).where(Shift.location_id == location_id).limit(1)):
         raise HTTPException(409, "Prevádzka má prednastavené zmeny. Najprv ich odstráň alebo presuň.")
     if session.scalar(select(User.id).where(User.location_id == location_id).limit(1)):
@@ -1105,6 +1118,14 @@ def delete_user(user_id: int, session: Session = Depends(db), _: User = Depends(
         raise HTTPException(404, "Zamestnanec neexistuje")
     if session.scalar(select(Attendance.id).where(Attendance.user_id == user_id).limit(1)):
         raise HTTPException(409, "Zamestnanec má dochádzku. Najprv odstráň jeho dochádzkové záznamy alebo ho iba deaktivuj.")
+    from quality.integration import has_records, legacy
+    if has_records(user_id):
+        raise HTTPException(409, "Zamestnanec má záznamy kvality. Použi deaktiváciu účtu.")
+    with legacy.db() as con:
+        row = con.execute("SELECT quality_id FROM unified_identity WHERE central_id=?", (user_id,)).fetchone()
+        if row:
+            con.execute("UPDATE users SET active=0 WHERE id=?", (row[0],))
+            con.execute("DELETE FROM unified_identity WHERE central_id=?", (user_id,))
     session.delete(obj)
     session.commit()
     return {"ok": True}
@@ -2325,3 +2346,9 @@ def export_csv(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="dochadzka_export.csv"'},
     )
+
+
+from unified_routes import register as register_unified
+register_unified(sys.modules[__name__])
+from quality.integration import register as register_quality
+register_quality(sys.modules[__name__])

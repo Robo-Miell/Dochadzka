@@ -1,0 +1,10 @@
+data
+backups
+.venv
+__pycache__
+*.pyc
+.git
+.env
+mobile_flutter
+tests
+test-output

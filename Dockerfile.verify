@@ -1,0 +1,8 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt httpx
+COPY main.py runtime_settings.py unified_routes.py verify_postgres.py ./
+COPY admin.html portal.html portal.js portal.css shared.js brand.png ./
+COPY quality ./quality
+CMD ["sh", "-c", "python verify_postgres.py && mkdir -p /tmp/verified && echo POSTGRES_VERIFIED > /tmp/verified/index.html && cd /tmp/verified && python -m http.server ${PORT:-10000}"]

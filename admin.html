@@ -27,10 +27,10 @@
 .format-checks{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px}.format-checks label{display:flex;align-items:center;gap:6px;margin:0;font-weight:600}
 @media(max-width:850px){.stats,.grid3{grid-template-columns:1fr 1fr}.wrap{padding:12px}.brand-small{height:36px}.brandrow h2{font-size:20px}}@media(max-width:520px){.stats,.grid,.grid3{grid-template-columns:1fr}.top{align-items:flex-start}.brandrow{align-items:flex-start}.brand-small{display:none}.actions{min-width:150px}.shift-editor-row{grid-template-columns:1fr 1fr}.shift-editor-row .shift-name,.shift-editor-row .shift-deduct,.shift-editor-row .shift-remove{grid-column:1/-1}}
 </style>
-</head>
-<body>
-<div class="wrap">
-  <section id="loginCard" class="card login">
+<link rel="stylesheet" href="/quality/shell.css?v=3"></head>
+<body><script src="/shared.js"></script>
+<div class="wrap attendance-wrap">
+  <section id="loginCard" class="card login hidden">
     <img class="brand" src="/brand.png" alt="MIELL Quality">
     <h1>Dochádzka Admin</h1><p class="muted">Prihlásenie administrátora</p>
     <label>Login</label><input id="login" value="admin" autocomplete="username">
@@ -40,18 +40,12 @@
   </section>
 
   <section id="app" class="hidden">
-    <div class="top">
-      <div class="brandrow"><img class="brand-small" src="/brand.png" alt="MIELL Quality"><div><h2>Dochádzka</h2><div class="muted">Online administrácia – plné úpravy</div></div></div>
-      <button id="logout" class="ghost">Odhlásiť</button>
-    </div>
-    <div class="tabs">
-      <button data-tab="dashboard" class="active">Prehľad</button>
-      <button data-tab="employees">Zamestnanci</button>
-      <button data-tab="locations">Prevádzky</button>
-      <button data-tab="attendance">Dochádzka</button>
-      <button data-tab="export">Export</button>
-    </div>
-
+    <aside class="miell-sidebar"><div class="miell-brand"><img src="/quality/logo.png" alt="MIELL Quality"></div>
+    <div class="miell-module-switch"><a class="selected" href="/admin">Dochádzka</a><a href="/quality/">Kvalita</a></div>
+    <div class="miell-caption">DOCHÁDZKA</div><nav class="miell-nav" aria-label="Dochádzka">
+      <button data-tab="dashboard" class="active">Prehľad</button><button data-tab="employees">Zamestnanci</button><button data-tab="locations">Prevádzky</button><button data-tab="attendance">Dochádzka</button><button data-tab="export">Export</button>
+    </nav><div class="miell-foot"><div id="attendanceUser"></div><button id="logout">Odhlásiť</button></div></aside>
+    <main class="miell-main"><header class="miell-topbar"><button id="attendanceMenu" class="miell-menu" aria-label="Otvoriť menu" aria-expanded="false">☰</button><div><h2 id="attendanceTitle">Prehľad</h2><div class="muted">Dochádzka</div></div><span class="miell-today"></span></header><div class="miell-content">
     <div id="dashboard" class="tab">
       <div class="stats">
         <div class="card"><div class="muted">Zamestnanci</div><div id="sEmp" class="stat">0</div></div>
@@ -119,6 +113,7 @@
         </div>
       </div>
     </div>
+    </div></main>
   </section>
 </div>
 
@@ -249,6 +244,7 @@ async function login(){
 }
 
 async function refresh(){
+  const current=await api("/api/me");if(current.role!=="admin"){location.replace("/");return}$("attendanceUser").textContent=current.name+" · ADMIN";
   [users,locations,shifts,attendance]=await Promise.all([api("/api/users"),api("/api/locations"),api("/api/shifts"),api("/api/attendance")]);
   $("sEmp").textContent=users.length;$("sLoc").textContent=locations.length;$("sPend").textContent=attendance.filter(x=>x.status==="pending").length;$("sAtt").textContent=attendance.length;
   renderEmployees();renderLocations();fillSelects();renderAttendance();renderPending();
@@ -607,8 +603,8 @@ async function saveAttendance(){
 }
 async function deleteAttendance(id){const a=attendance.find(x=>x.id===id);if(!confirm(`Naozaj odstrániť záznam ${a?.work_date||""} – ${a?.user_name||""}?\nTáto akcia sa nedá vrátiť späť.`))return;try{await api(`/api/attendance/${id}`,{method:"DELETE"});await refresh()}catch(e){alert(e.message)}}
 
-$("loginBtn").onclick=login;$("password").onkeydown=e=>{if(e.key==="Enter")login()};$("logout").onclick=()=>{localStorage.removeItem("dochadzka_token");location.reload()};
-document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.add("hidden"));$(b.dataset.tab).classList.remove("hidden");document.querySelectorAll("[data-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active")});
+$("loginBtn").onclick=login;$("password").onkeydown=e=>{if(e.key==="Enter")login()};$("logout").onclick=()=>window.miellLogout();
+document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.add("hidden"));$(b.dataset.tab).classList.remove("hidden");document.querySelectorAll("[data-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active");$("attendanceTitle").textContent=b.textContent;document.querySelector(".miell-sidebar").classList.remove("open");$("attendanceMenu").setAttribute("aria-expanded","false")});
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).close());
 $("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("openResetPass").onclick=openResetPassword;$("saveResetPass").onclick=saveResetPassword;$("saveLoc").onclick=saveLocation;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;$("aloc").onchange=updateAttTimeFields;$("addLocShift").onclick=()=>{locShiftDraft.push(newShiftDraft());renderLocShiftRows()};$("lreportfrequency").onchange=updateReportingVisibility;$("sendReportNow").onclick=sendReportNow;
 ["fFrom","fTo","fLoc"].forEach(id=>$(id).oninput=renderAttendance);
@@ -652,7 +648,9 @@ $("downloadPdf").onclick=()=>downloadExport("/api/export.pdf","dochadzka_export.
 $("downloadXls").onclick=()=>downloadExport("/api/export.xlsx","dochadzka_export.xlsx");
 $("downloadCsv").onclick=()=>downloadExport("/api/export.csv","dochadzka_export.csv");
 const m=new Date(),first=new Date(m.getFullYear(),m.getMonth(),1),last=new Date(m.getFullYear(),m.getMonth()+1,0);const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;["fFrom","eFrom"].forEach(id=>$(id).value=localDate(first));["fTo","eTo"].forEach(id=>$(id).value=localDate(last));
+if(!token)location.replace("/");
 if(token){$("loginCard").classList.add("hidden");$("app").classList.remove("hidden");refresh().catch(()=>{localStorage.removeItem("dochadzka_token");location.reload()})}
 </script>
 </body>
 </html>
+<script>if(location.hash==="#employees")document.querySelector('[data-tab="employees"]').click();</script><script>document.getElementById('attendanceMenu').onclick=()=>{const open=document.querySelector('.miell-sidebar').classList.toggle('open');document.getElementById('attendanceMenu').setAttribute('aria-expanded',String(open))};document.querySelector('.miell-today').textContent=new Date().toLocaleDateString('sk-SK');</script>

@@ -1,12 +1,14 @@
 services:
   - type: web
-    name: dochadzka
+    name: miell-unified
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /
+    healthCheckPath: /health
     envVars:
+      - key: MIELL_DATA_DIR
+        value: /tmp/miell
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
