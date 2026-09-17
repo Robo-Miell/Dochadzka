@@ -1,13 +1,46 @@
 (() => {
   let pending = null;
+  function parseLabel(raw) {
+    const fields = {}, conflicts = new Set();
+    for (const code of (Array.isArray(raw) ? raw : [raw])) {
+      if (typeof code !== 'string') continue;
+      for (const line of code.split(/[\r\n\t\x1d\x1e;]+/)) {
+        const match = /^([PSQ])(.+)$/.exec(line.trim());
+        if (!match) continue;
+        const [, prefix, value] = match;
+        if (fields[prefix] !== undefined && fields[prefix] !== value) conflicts.add(prefix);
+        fields[prefix] = value;
+      }
+    }
+    for (const key of conflicts) delete fields[key];
+    return {fields, conflicts:[...conflicts]};
+  }
+  window.miellParseLabel = parseLabel;
   function apply(value) {
     const field = pending;
     pending = null;
-    if (!field?.isConnected || typeof value !== 'string' || !value.length) return;
-    field.value = value;
-    field.dispatchEvent(new Event('input', {bubbles: true}));
-    field.dispatchEvent(new Event('change', {bubbles: true}));
-    field.focus();
+    if (!field?.isConnected || value == null) return;
+    const {fields, conflicts} = parseLabel(value);
+    const errors = conflicts.map(k => `Etiketa obsahuje rôzne hodnoty s prefixom ${k}. Naskenuj iba jednu etiketu.`);
+    const set = (el, text) => {
+      el.value = text;
+      el.dispatchEvent(new Event('input', {bubbles:true}));
+      el.dispatchEvent(new Event('change', {bubbles:true}));
+    };
+    if (fields.P !== undefined) {
+      const part = document.getElementById('rPart');
+      const matches = [...(part?.options || [])].filter(o => o.dataset.itemNumber === fields.P);
+      if (part && !part.disabled && matches.length === 1) set(part, matches[0].value);
+      else errors.push(`Diel ${fields.P} nie je jednoznačne dostupný vo vybranej zákazke. Vyber zákazku a správny diel ručne.`);
+    }
+    if (fields.S !== undefined) set(field, fields.S);
+    if (fields.Q !== undefined) {
+      if (/^\d+$/.test(fields.Q) && Number.isSafeInteger(Number(fields.Q))) {
+        set(document.getElementById('rChecked'), String(Number(fields.Q)));
+      } else errors.push('Hodnota Q musí byť celé nezáporné číslo. Checked zostalo nezmenené.');
+    }
+    if (!Object.keys(fields).length && !conflicts.length) errors.push('Nenašiel sa prefix P, S ani Q. Hodnoty zostali nezmenené.');
+    if (errors.length) alert(errors.join('\n'));
   }
   window.miellBarcodeResult = apply;
 
@@ -26,21 +59,22 @@
     }
     const dialog = document.createElement('dialog');
     dialog.className = 'barcode-dialog';
-    dialog.innerHTML = '<h3>Skenovať dodací list</h3><p>Namier fotoaparát na jeden čiarový alebo QR kód.</p><video autoplay muted playsinline></video><p class="barcode-status" role="status">Spúšťam fotoaparát…</p><div class="barcode-actions"><button type="button" class="btn primary barcode-use" hidden>Použiť číslo</button><button type="button" class="btn barcode-retry" hidden>Skenovať znova</button><button type="button" class="btn barcode-cancel">Zrušiť</button></div>';
+    dialog.innerHTML = '<h3>Skenovať etiketu</h3><p>Postupne nasnímaj kódy jednej etikety: P – diel, S – dodací list, Q – Checked.</p><video autoplay muted playsinline></video><p class="barcode-status" role="status">Spúšťam fotoaparát…</p><div class="barcode-actions"><button type="button" class="btn primary barcode-use" hidden>Použiť hodnoty</button><button type="button" class="btn barcode-retry" hidden>Skenovať znova</button><button type="button" class="btn barcode-cancel">Zrušiť</button></div>';
     document.body.append(dialog);
     const video = dialog.querySelector('video');
     const status = dialog.querySelector('.barcode-status');
     const use = dialog.querySelector('.barcode-use');
     const retry = dialog.querySelector('.barcode-retry');
-    let stream, timer, value, closed = false;
+    let stream, timer, closed = false;
+    let value = new Set();
     const stop = () => { clearTimeout(timer); stream?.getTracks().forEach(t => t.stop()); };
     const close = () => { closed = true; stop(); pending = null; dialog.remove(); document.removeEventListener('visibilitychange', visibility); };
     const visibility = () => { if (document.hidden) dialog.close(); };
     document.addEventListener('visibilitychange', visibility);
     dialog.addEventListener('close', close, {once:true});
     dialog.querySelector('.barcode-cancel').onclick = () => dialog.close();
-    use.onclick = () => { apply(value); dialog.close(); };
-    retry.onclick = () => { value = null; use.hidden = retry.hidden = true; start(); };
+    use.onclick = () => { apply([...value]); dialog.close(); };
+    retry.onclick = () => { stop(); value = new Set(); use.hidden = retry.hidden = true; start(); };
     dialog.showModal();
     async function start() {
       retry.hidden = true;
@@ -57,13 +91,14 @@
           try {
             const codes = [...new Set((await detector.detect(video)).map(c => c.rawValue).filter(Boolean))];
             if (closed) return;
-            if (codes.length === 1) {
-              value = codes[0]; stop(); video.hidden = true;
-              status.textContent = 'Načítané číslo: ' + value;
-              use.hidden = retry.hidden = false;
-              return;
-            }
-            status.textContent = codes.length > 1 ? 'V zábere je viac kódov. Namier na jeden.' : 'Hľadám čiarový kód…';
+            codes.forEach(code => {
+              if (Object.keys(parseLabel(code).fields).length) value.add(code);
+            });
+            const parsed = parseLabel([...value]);
+            status.textContent = Object.entries(parsed.fields).map(([k,v])=>`${k}: ${v}`).join(' | ') || 'Hľadám kódy P, S, Q…';
+            if (parsed.conflicts.length) status.textContent += ' — Rôzne hodnoty rovnakého prefixu. Skenuj znova jednu etiketu.';
+            use.hidden = value.size === 0 || parsed.conflicts.length > 0;
+            retry.hidden = value.size === 0;
             timer = setTimeout(detect, 180);
           } catch { fail(); }
         }

@@ -31,7 +31,7 @@ class _QualityPageState extends State<QualityPage> {
     if (!mounted) return;
     scanning = true;
     try {
-      final value = await Navigator.push<String>(context,
+      final value = await Navigator.push<List<String>>(context,
         MaterialPageRoute(builder: (_) => const BarcodePage()));
       if (mounted) {
         await controller.runJavaScript(
