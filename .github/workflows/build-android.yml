@@ -80,6 +80,12 @@ jobs:
           p.write_text(text, encoding="utf-8")
           PY
 
+      - name: Check quality integration
+        working-directory: mobile_flutter
+        run: |
+          flutter analyze lib/quality_page.dart
+          flutter test test/module_home_test.dart
+
       - name: Build size-optimized split APKs
         working-directory: mobile_flutter
         run: >-

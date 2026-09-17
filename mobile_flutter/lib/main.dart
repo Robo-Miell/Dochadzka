@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'quality_page.dart';
 
 const apiBase = String.fromEnvironment(
   'API_URL',
@@ -202,11 +203,50 @@ class _RootPageState extends State<RootPage> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (user == null) return LoginPage(onLogin: loggedIn);
-    if (user!['role'] == 'admin') {
-      return AdminHome(user: user!, onLogout: logout);
-    }
-    return EmployeeHome(user: user!, onLogout: logout);
+    return ModuleHome(user: user!, onLogout: logout);
   }
+}
+
+class ModuleHome extends StatelessWidget {
+  final Map<String, dynamic> user;
+  final Future<void> Function() onLogout;
+  const ModuleHome({super.key, required this.user, required this.onLogout});
+
+  Future<void> open(BuildContext context, Widget page) async {
+    final expired = await Navigator.push<bool>(
+      context, MaterialPageRoute(builder: (_) => page),
+    );
+    if (expired == true) await onLogout();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const BrandAppTitle('MIELL'), actions: [
+      IconButton(onPressed: onLogout, tooltip: 'Odhlásiť', icon: const Icon(Icons.logout)),
+    ]),
+    body: ListView(padding: const EdgeInsets.all(24), children: [
+      Text(user['name']?.toString() ?? '', style: Theme.of(context).textTheme.headlineSmall),
+      const SizedBox(height: 24),
+      const Text('Vyber modul'),
+      const SizedBox(height: 12),
+      Card(child: ListTile(
+        contentPadding: const EdgeInsets.all(20),
+        leading: const Icon(Icons.access_time), title: const Text('Dochádzka'),
+        subtitle: const Text('Príchody, odchody a odpracované hodiny'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => open(context, user['role'] == 'admin'
+          ? AdminHome(user: user, onLogout: () async { Navigator.pop(context, true); })
+          : EmployeeHome(user: user, onLogout: () async { Navigator.pop(context, true); })),
+      )),
+      Card(child: ListTile(
+        contentPadding: const EdgeInsets.all(20),
+        leading: const Icon(Icons.fact_check_outlined), title: const Text('Kvalita'),
+        subtitle: const Text('Zákazky a zadávanie záznamov kvality'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => open(context, QualityPage(baseUrl: apiBase, token: api.token!)),
+      )),
+    ]),
+  );
 }
 
 class LoginPage extends StatefulWidget {
