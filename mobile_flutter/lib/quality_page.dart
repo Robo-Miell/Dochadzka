@@ -54,10 +54,12 @@ class _QualityPageState extends State<QualityPage> {
               setState(() => loading = false);
             }
           } catch (_) {
-            if (mounted) setState(() {
-              loading = false;
-              error = 'Kvalitu sa nepodarilo načítať. Skús to znova.';
-            });
+            if (mounted) {
+              setState(() {
+                loading = false;
+                error = 'Kvalitu sa nepodarilo načítať. Skús to znova.';
+              });
+            }
           }
         },
         onWebResourceError: (failure) {
