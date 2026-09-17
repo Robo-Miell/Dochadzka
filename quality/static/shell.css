@@ -18,3 +18,5 @@
 .miell-foot>div,.sidebar .sidebar-foot #userBadge{color:#394b40}
 .sidebar .nav-btn.logout{color:#b42318}
 @media(max-width:760px){.attendance-wrap #app{display:block}.attendance-wrap .miell-sidebar{position:fixed;left:-270px;width:250px;z-index:30;transition:left .2s}.attendance-wrap .miell-sidebar.open{left:0}.miell-menu{display:block;border:1px solid #dce5e0;background:#fff;font-size:20px;padding:8px 12px;border-radius:9px}.miell-topbar{padding:0 15px;justify-content:flex-start}.miell-today{display:none}.miell-content{padding:18px 14px 40px}#moduleChooser{display:block}#moduleChooser>.miell-sidebar{display:none}.module-choice-content{padding:30px 20px}.module-cards{grid-template-columns:1fr}.module-choice-content h1{font-size:25px}.module-card p{min-height:0}}
+
+.scan-button{margin-top:8px;min-height:44px}.barcode-dialog{width:min(92vw,520px);border:0;border-radius:16px;padding:22px}.barcode-dialog::backdrop{background:#0009}.barcode-dialog video{width:100%;max-height:55vh;object-fit:cover;border-radius:10px}.barcode-status{overflow-wrap:anywhere}.barcode-actions{display:flex;gap:10px;flex-wrap:wrap}.barcode-dialog [hidden]{display:none!important}

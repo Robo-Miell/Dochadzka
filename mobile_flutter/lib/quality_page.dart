@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'barcode_page.dart';
 
 /// Uses the existing employee session only on the configured server origin.
 class QualityPage extends StatefulWidget {
@@ -18,6 +19,29 @@ class _QualityPageState extends State<QualityPage> {
   bool authenticated = false;
   bool loading = true;
   String? error;
+  bool scanning = false;
+
+  Future<void> scanDelivery(JavaScriptMessage message) async {
+    if (scanning || message.message != 'rDelivery') return;
+    final url = Uri.tryParse(await controller.currentUrl() ?? '');
+    if (url == null || url.scheme != origin.scheme || url.host != origin.host ||
+        url.port != origin.port || !url.path.startsWith('/quality/')) {
+      return;
+    }
+    if (!mounted) return;
+    scanning = true;
+    try {
+      final value = await Navigator.push<String>(context,
+        MaterialPageRoute(builder: (_) => const BarcodePage()));
+      if (mounted) {
+        await controller.runJavaScript(
+          'window.miellBarcodeResult?.(${jsonEncode(value)});',
+        );
+      }
+    } finally {
+      scanning = false;
+    }
+  }
 
   @override
   void initState() {
@@ -25,6 +49,7 @@ class _QualityPageState extends State<QualityPage> {
     origin = Uri.parse(widget.baseUrl);
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..addJavaScriptChannel('MiellScanner', onMessageReceived: scanDelivery)
       ..setNavigationDelegate(NavigationDelegate(
         onNavigationRequest: (request) {
           final uri = Uri.tryParse(request.url);
@@ -32,7 +57,7 @@ class _QualityPageState extends State<QualityPage> {
             return NavigationDecision.prevent;
           }
           if (authenticated && request.isMainFrame && uri.path == '/') {
-            if (mounted) Navigator.pop(context, true);
+            if (mounted) Navigator.pop(context, uri.queryParameters['view'] != 'attendance');
             return NavigationDecision.prevent;
           }
           return NavigationDecision.navigate;

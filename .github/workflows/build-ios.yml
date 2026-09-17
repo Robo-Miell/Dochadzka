@@ -61,6 +61,7 @@ jobs:
 
           data["CFBundleDisplayName"] = "MIELL Dochádzka"
           data["CFBundleName"] = "MIELL Dochádzka"
+          data["NSCameraUsageDescription"] = "Fotoaparát slúži na skenovanie čiarových kódov dodacích listov."
 
           with p.open("wb") as f:
               plistlib.dump(data, f)
