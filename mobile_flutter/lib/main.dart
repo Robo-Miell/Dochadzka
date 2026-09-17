@@ -243,7 +243,13 @@ class ModuleHome extends StatelessWidget {
         leading: const Icon(Icons.fact_check_outlined), title: const Text('Kvalita'),
         subtitle: const Text('Zákazky a zadávanie záznamov kvality'),
         trailing: const Icon(Icons.chevron_right),
-        onTap: () => open(context, QualityPage(baseUrl: apiBase, token: api.token!)),
+        onTap: () {
+          if (kIsWeb) {
+            launchUrl(Uri.parse('$apiBase/quality/'), webOnlyWindowName: '_self');
+          } else {
+            open(context, QualityPage(baseUrl: apiBase, token: api.token!));
+          }
+        },
       )),
     ]),
   );
