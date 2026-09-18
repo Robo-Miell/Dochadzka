@@ -12,13 +12,21 @@ async function api(url,opt={}){
 }
 async function downloadFile(url){
   try{
+    if(window.MiellDownloads?.postMessage){
+      window.MiellDownloads.postMessage('/quality'+url);
+      return;
+    }
+    if(window.MiellScanner?.postMessage){
+      throw new Error('Na uloženie PDF a Excel reportov aktualizuj Android aplikáciu na verziu 0.6.2 alebo novšiu.');
+    }
+    toast('Pripravujem report…');
     const r=await fetch('/quality'+url,{headers:{Authorization:'Bearer '+(localStorage.getItem('dochadzka_token')||'')}});
     if(!r.ok){let d={};try{d=await r.json()}catch{};throw new Error(d.error||d.detail||`HTTP ${r.status}`)}
     const blob=await r.blob();
     let name='report';
     const cd=r.headers.get('Content-Disposition')||'';
     const m=cd.match(/filename="?([^";]+)"?/i); if(m) name=m[1];
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
   }catch(e){toast(e.message,'error')}
 }
 function toast(msg,type='success'){const d=document.createElement('div');d.className='toast '+type;d.textContent=msg;$('#toast').appendChild(d);setTimeout(()=>d.remove(),4200)}

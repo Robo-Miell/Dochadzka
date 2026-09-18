@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'barcode_page.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:http/http.dart' as http;
+import 'quality_download.dart';
 
 /// Uses the existing employee session only on the configured server origin.
 class QualityPage extends StatefulWidget {
@@ -20,6 +23,41 @@ class _QualityPageState extends State<QualityPage> {
   bool loading = true;
   String? error;
   bool scanning = false;
+  bool exporting = false;
+
+  Future<void> downloadReport(JavaScriptMessage message) async {
+    if (exporting || !mounted) return;
+    final current = Uri.tryParse(await controller.currentUrl() ?? '');
+    if (current == null || current.scheme != origin.scheme || current.host != origin.host ||
+        current.port != origin.port || !current.path.startsWith('/quality/')) {
+      return;
+    }
+    if (!mounted || exporting) return;
+    setState(() => exporting = true);
+    final client = http.Client();
+    try {
+      final report = await fetchQualityReport(client, origin, message.message, widget.token);
+      if (!mounted) return;
+      final saved = await FilePicker.saveFile(
+        dialogTitle: 'Uložiť report', fileName: report.name, bytes: report.bytes,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(saved == null ? 'Uloženie bolo zrušené.' : 'Report bol uložený.'),
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          duration: const Duration(seconds: 8),
+        ));
+      }
+    } finally {
+      client.close();
+      if (mounted) setState(() => exporting = false);
+    }
+  }
 
   Future<void> scanDelivery(JavaScriptMessage message) async {
     if (scanning || message.message != 'rDelivery') return;
@@ -50,6 +88,7 @@ class _QualityPageState extends State<QualityPage> {
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel('MiellScanner', onMessageReceived: scanDelivery)
+      ..addJavaScriptChannel('MiellDownloads', onMessageReceived: downloadReport)
       ..setNavigationDelegate(NavigationDelegate(
         onNavigationRequest: (request) {
           final uri = Uri.tryParse(request.url);
@@ -115,6 +154,11 @@ class _QualityPageState extends State<QualityPage> {
     ]),
     body: SafeArea(child: Stack(children: [
       WebViewWidget(controller: controller),
+      if (exporting) const Positioned(top: 0, left: 0, right: 0,
+        child: Material(child: Column(children: [LinearProgressIndicator(),
+          Padding(padding: EdgeInsets.all(12), child: Text('Pripravujem report…')),
+        ])),
+      ),
       if (loading) const Positioned.fill(
         child: ColoredBox(color: Colors.white, child: Center(child: CircularProgressIndicator())),
       ),

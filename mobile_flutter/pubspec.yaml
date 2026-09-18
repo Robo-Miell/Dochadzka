@@ -1,7 +1,7 @@
 name: dochadzka_mobile
 description: MIELL mobilná dochádzka pre Android a iOS
 publish_to: "none"
-version: 0.6.1+7
+version: 0.6.2+8
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -14,6 +14,7 @@ dependencies:
   url_launcher: ^6.3.2
   webview_flutter: ^4.13.0
   mobile_scanner: ^7.4.2
+  file_picker: ^11.0.3
 
 dev_dependencies:
   flutter_test:
