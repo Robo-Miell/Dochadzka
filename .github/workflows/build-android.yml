@@ -83,8 +83,8 @@ jobs:
       - name: Check quality integration
         working-directory: mobile_flutter
         run: |
-          flutter analyze lib/quality_page.dart lib/barcode_page.dart
-          flutter test test/module_home_test.dart
+          flutter analyze lib/quality_page.dart lib/barcode_page.dart lib/label_scan.dart
+          flutter test test/module_home_test.dart test/label_scan_test.dart
           node --test ../test_barcode_bridge.cjs
 
       - name: Build size-optimized split APKs
