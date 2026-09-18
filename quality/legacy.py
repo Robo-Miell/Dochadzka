@@ -3,7 +3,9 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
 from datetime import datetime, date as _Date
 from zoneinfo import ZoneInfo
-import xml.etree.ElementTree as ET
+# Preserve namespace declarations referenced by Excel's mc:Ignorable attributes.
+# ElementTree drops unused declarations and rewrites prefixes, corrupting XLSM.
+from lxml import etree as ET
 
 class date(_Date):
     @classmethod
@@ -20,7 +22,6 @@ HOST = '127.0.0.1'
 DEFAULT_PORT = 8788
 SESSIONS = {}
 NS_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
-ET.register_namespace('', NS_MAIN)
 
 
 def db():
