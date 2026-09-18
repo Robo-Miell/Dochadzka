@@ -1,5 +1,3 @@
-from runtime_settings import DATA_DIR, verify_password
-import sys
 import base64
 import csv
 import hmac
@@ -11,11 +9,9 @@ import reportlab
 import xlwt
 import xlsxwriter
 from datetime import date, datetime, timedelta
-from email.message import EmailMessage
-from email.utils import formataddr
 from typing import Optional
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
@@ -42,23 +38,18 @@ JWT_SECRET = os.getenv("JWT_SECRET", "change-this-secret")
 JWT_ALG = "HS256"
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "10080"))
 ADMIN_LOGIN = os.getenv("ADMIN_LOGIN", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 ADMIN_NAME = os.getenv("ADMIN_NAME", "Administrátor")
 
-GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "").strip()
-GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "").strip()
-GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN", "").strip()
-GMAIL_SENDER_EMAIL = os.getenv("GMAIL_SENDER_EMAIL", "").strip()
+MS_TENANT_ID = os.getenv("MS_TENANT_ID", "").strip()
+MS_CLIENT_ID = os.getenv("MS_CLIENT_ID", "").strip()
+MS_CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET", "").strip()
+MS_SENDER_EMAIL = os.getenv("MS_SENDER_EMAIL", "").strip()
 REPORTING_JOB_SECRET = os.getenv("REPORTING_JOB_SECRET", "")
 REPORTING_TIMEZONE = os.getenv("REPORTING_TIMEZONE", "Europe/Bratislava")
 
 engine_args = {"connect_args": {"check_same_thread": False}} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, **engine_args)
-if engine.dialect.name == 'postgresql':
-    from sqlalchemy import event
-    @event.listens_for(engine, 'begin')
-    def attendance_schema(connection):
-        connection.exec_driver_sql('SET LOCAL search_path TO public')
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -290,7 +281,7 @@ class StatusIn(BaseModel):
     status: str
 
 
-app = FastAPI(title="MIELL — Dochádzka a kvalita", version="1.0")
+app = FastAPI(title="Dochádzka API", version="5.14")
 origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -372,8 +363,6 @@ def get_current_user(
     token = authorization.split(" ", 1)[1]
     try:
         data = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
-        if data.get("scope"):
-            raise ValueError("Scoped token is not an access token")
         uid = int(data["sub"])
     except (JWTError, KeyError, ValueError):
         raise HTTPException(401, "Neplatný token")
@@ -677,16 +666,9 @@ def ensure_schema_columns():
 def startup():
     Base.metadata.create_all(engine)
     ensure_schema_columns()
-    from quality.integration import configure, import_initial_users
-    configure(DATA_DIR)
-    import_initial_users(sys.modules[__name__])
     with SessionLocal() as session:
         admin = session.scalar(select(User).where(User.login == ADMIN_LOGIN))
-        any_admin = session.scalar(select(User).where(User.role == 'admin', User.active == True))
-        if not admin and not any_admin:
-            if not ADMIN_PASSWORD:
-                raise RuntimeError('Pre prázdnu inštaláciu nastav ADMIN_PASSWORD (aspoň 8 znakov). Existujúci reporting používa importované účty.')
-            validate_new_password(ADMIN_PASSWORD)
+        if not admin:
             admin = User(
                 personal_number="ADMIN",
                 name=ADMIN_NAME,
@@ -714,7 +696,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return FileResponse(os.path.join(static_dir, "portal.html"))
+    return {"name": "Dochádzka API", "version": "5.14", "admin": "/admin", "docs": "/docs"}
 
 
 @app.get("/admin")
@@ -733,7 +715,7 @@ def brand_logo():
 @app.post("/api/auth/login")
 def login(data: LoginIn, session: Session = Depends(db)):
     user = session.scalar(select(User).where(User.login == data.login.strip()))
-    if not user or not user.active or not verify_password(data.password, user.password_hash, pwd):
+    if not user or not user.active or not pwd.verify(data.password, user.password_hash):
         raise HTTPException(401, "Nesprávny login alebo heslo")
     return {"access_token": token_for(user), "token_type": "bearer", "user": serialize_user(user)}
 
@@ -749,10 +731,12 @@ def change_my_password(
     session: Session = Depends(db),
     user: User = Depends(get_current_user),
 ):
-    if not verify_password(data.current_password or "", user.password_hash, pwd):
+    if user.role != "employee":
+        raise HTTPException(403, "Zmenu hesla v aplikácii môže vykonať zamestnanec")
+    if not pwd.verify(data.current_password or "", user.password_hash):
         raise HTTPException(400, "Aktuálne heslo nie je správne")
     new_password = validate_new_password(data.new_password)
-    if verify_password(new_password, user.password_hash, pwd):
+    if pwd.verify(new_password, user.password_hash):
         raise HTTPException(400, "Nové heslo musí byť odlišné od aktuálneho hesla")
     user.password_hash = pwd.hash(new_password)
     user.token_version = int(user.token_version or 0) + 1
@@ -861,10 +845,6 @@ def delete_location(
     obj = session.get(Location, location_id)
     if not obj:
         raise HTTPException(404, "Prevádzka neexistuje")
-    from quality.integration import legacy
-    with legacy.db() as quality_db:
-        if quality_db.execute('SELECT 1 FROM jobs WHERE location_id=? LIMIT 1',(location_id,)).fetchone():
-            raise HTTPException(409, 'Prevádzku používa zákazka kvality. Najprv zmeň prevádzku zákazky.')
     if session.scalar(select(Shift.id).where(Shift.location_id == location_id).limit(1)):
         raise HTTPException(409, "Prevádzka má prednastavené zmeny. Najprv ich odstráň alebo presuň.")
     if session.scalar(select(User.id).where(User.location_id == location_id).limit(1)):
@@ -1123,14 +1103,6 @@ def delete_user(user_id: int, session: Session = Depends(db), _: User = Depends(
         raise HTTPException(404, "Zamestnanec neexistuje")
     if session.scalar(select(Attendance.id).where(Attendance.user_id == user_id).limit(1)):
         raise HTTPException(409, "Zamestnanec má dochádzku. Najprv odstráň jeho dochádzkové záznamy alebo ho iba deaktivuj.")
-    from quality.integration import has_records, legacy
-    if has_records(user_id):
-        raise HTTPException(409, "Zamestnanec má záznamy kvality. Použi deaktiváciu účtu.")
-    with legacy.db() as con:
-        row = con.execute("SELECT quality_id FROM unified_identity WHERE central_id=?", (user_id,)).fetchone()
-        if row:
-            con.execute("UPDATE users SET active=0 WHERE id=?", (row[0],))
-            con.execute("DELETE FROM unified_identity WHERE central_id=?", (user_id,))
     session.delete(obj)
     session.commit()
     return {"ok": True}
@@ -1972,14 +1944,14 @@ def safe_report_filename(value: str) -> str:
     return value.strip("_") or "prevadzka"
 
 
-def gmail_access_token() -> str:
+def microsoft_graph_access_token() -> str:
     missing = []
-    if not GMAIL_CLIENT_ID:
-        missing.append("GMAIL_CLIENT_ID")
-    if not GMAIL_CLIENT_SECRET:
-        missing.append("GMAIL_CLIENT_SECRET")
-    if not GMAIL_REFRESH_TOKEN:
-        missing.append("GMAIL_REFRESH_TOKEN")
+    if not MS_TENANT_ID:
+        missing.append("MS_TENANT_ID")
+    if not MS_CLIENT_ID:
+        missing.append("MS_CLIENT_ID")
+    if not MS_CLIENT_SECRET:
+        missing.append("MS_CLIENT_SECRET")
     if missing:
         raise RuntimeError(
             "V Render Environment chýba: " + ", ".join(missing)
@@ -1987,14 +1959,14 @@ def gmail_access_token() -> str:
 
     body = urlencode(
         {
-            "client_id": GMAIL_CLIENT_ID,
-            "client_secret": GMAIL_CLIENT_SECRET,
-            "refresh_token": GMAIL_REFRESH_TOKEN,
-            "grant_type": "refresh_token",
+            "client_id": MS_CLIENT_ID,
+            "client_secret": MS_CLIENT_SECRET,
+            "scope": "https://graph.microsoft.com/.default",
+            "grant_type": "client_credentials",
         }
     ).encode("utf-8")
     request = Request(
-        "https://oauth2.googleapis.com/token",
+        f"https://login.microsoftonline.com/{quote(MS_TENANT_ID, safe='')}/oauth2/v2.0/token",
         data=body,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
@@ -2010,46 +1982,67 @@ def gmail_access_token() -> str:
             description = details.get("error_description") or details.get("error") or raw
         except Exception:
             description = raw
-        raise RuntimeError(f"Gmail OAuth zlyhal ({exc.code}): {description}") from exc
+        raise RuntimeError(f"Microsoft OAuth zlyhal ({exc.code}): {description}") from exc
     except URLError as exc:
-        raise RuntimeError(f"Gmail OAuth nie je dostupný: {exc.reason}") from exc
+        raise RuntimeError(f"Microsoft OAuth nie je dostupný: {exc.reason}") from exc
 
     access_token = payload.get("access_token")
     if not access_token:
-        raise RuntimeError("Google OAuth nevrátil access token")
+        raise RuntimeError("Microsoft OAuth nevrátil access token")
     return access_token
 
 
-def gmail_api_send_report(
+def microsoft_graph_send_report(
     location: Location,
     recipients: list[str],
     date_from: date,
     date_to: date,
     attachments: list[tuple[str, bytes, str, str]],
 ):
-    if not GMAIL_SENDER_EMAIL:
-        raise RuntimeError("GMAIL_SENDER_EMAIL nie je nastavený v Render Environment")
+    if not MS_SENDER_EMAIL:
+        raise RuntimeError("MS_SENDER_EMAIL nie je nastavený v Render Environment")
 
     period = export_period_text_en(date_from, date_to)
-    msg = EmailMessage()
-    msg["Subject"] = f"Attendance Report – {location.name} – {period}"
-    msg["From"] = formataddr(("MIELL Attendance", GMAIL_SENDER_EMAIL))
-    msg["To"] = ", ".join(recipients)
-    msg.set_content(
+    subject = f"Attendance Report – {location.name} – {period}"
+    content = (
         "Hello,\n\n"
         f"please find attached the attendance report for location {location.name} "
         f"for {period}.\n\n"
         "This e-mail was sent automatically by the MIELL Attendance system."
     )
 
+    graph_attachments = []
     for filename, payload, maintype, subtype in attachments:
-        msg.add_attachment(payload, maintype=maintype, subtype=subtype, filename=filename)
+        graph_attachments.append(
+            {
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": filename,
+                "contentType": f"{maintype}/{subtype}",
+                "contentBytes": base64.b64encode(payload).decode("ascii"),
+            }
+        )
 
-    access_token = gmail_access_token()
-    raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
-    body = json.dumps({"raw": raw_message}).encode("utf-8")
+    message = {
+        "subject": subject,
+        "body": {"contentType": "Text", "content": content},
+        "toRecipients": [
+            {"emailAddress": {"address": recipient}} for recipient in recipients
+        ],
+    }
+    if graph_attachments:
+        message["attachments"] = graph_attachments
+
+    body = json.dumps(
+        {
+            "message": message,
+            "saveToSentItems": True,
+        }
+    ).encode("utf-8")
+
+    access_token = microsoft_graph_access_token()
+    sender = quote(MS_SENDER_EMAIL, safe="")
     request = Request(
-        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        f"https://graph.microsoft.com/v1.0/users/{sender}/sendMail",
         data=body,
         headers={
             "Authorization": f"Bearer {access_token}",
@@ -2060,7 +2053,8 @@ def gmail_api_send_report(
 
     try:
         with urlopen(request, timeout=60) as response:
-            response_payload = json.loads(response.read().decode("utf-8"))
+            status = getattr(response, "status", response.getcode())
+            response.read()
     except HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
         try:
@@ -2070,14 +2064,13 @@ def gmail_api_send_report(
             description = description or raw
         except Exception:
             description = raw
-        raise RuntimeError(f"Gmail API odoslanie zlyhalo ({exc.code}): {description}") from exc
+        raise RuntimeError(f"Microsoft Graph odoslanie zlyhalo ({exc.code}): {description}") from exc
     except URLError as exc:
-        raise RuntimeError(f"Gmail API nie je dostupné: {exc.reason}") from exc
+        raise RuntimeError(f"Microsoft Graph nie je dostupný: {exc.reason}") from exc
 
-    if not response_payload.get("id"):
-        raise RuntimeError("Gmail API nevrátilo ID odoslanej správy")
-    return response_payload
-
+    if status != 202:
+        raise RuntimeError(f"Microsoft Graph vrátil neočakávaný HTTP stav {status}")
+    return {"accepted": True, "status": status}
 
 def send_location_report(
     session: Session,
@@ -2151,7 +2144,7 @@ def send_location_report(
             "vnd.ms-excel",
         ))
 
-    gmail_api_send_report(location, recipients, date_from, date_to, attachments)
+    microsoft_graph_send_report(location, recipients, date_from, date_to, attachments)
 
     location.reporting_last_sent_at = datetime.utcnow()
     location.reporting_last_status = "sent"
@@ -2351,9 +2344,3 @@ def export_csv(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="dochadzka_export.csv"'},
     )
-
-
-from unified_routes import register as register_unified
-register_unified(sys.modules[__name__])
-from quality.integration import register as register_quality
-register_quality(sys.modules[__name__])
