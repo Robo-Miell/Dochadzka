@@ -75,7 +75,15 @@ def init_db():
         norm_ct_seconds REAL,
         active INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        reporting_enabled INTEGER NOT NULL DEFAULT 0,
+        reporting_recipients TEXT NOT NULL DEFAULT '',
+        reporting_time TEXT NOT NULL DEFAULT '08:00',
+        reporting_formats TEXT NOT NULL DEFAULT 'pdf,xlsm',
+        reporting_last_sent_at TEXT,
+        reporting_last_status TEXT NOT NULL DEFAULT '',
+        reporting_last_error TEXT NOT NULL DEFAULT '',
+        reporting_last_period TEXT NOT NULL DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS job_parts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -131,6 +139,18 @@ def init_db():
         con.execute("ALTER TABLE jobs ADD COLUMN norm_mode TEXT NOT NULL DEFAULT 'ct'")
     if 'norm_ct_seconds' not in jcols:
         con.execute('ALTER TABLE jobs ADD COLUMN norm_ct_seconds REAL')
+    for col, ddl in [
+        ('reporting_enabled', 'ALTER TABLE jobs ADD COLUMN reporting_enabled INTEGER NOT NULL DEFAULT 0'),
+        ('reporting_recipients', "ALTER TABLE jobs ADD COLUMN reporting_recipients TEXT NOT NULL DEFAULT ''"),
+        ('reporting_time', "ALTER TABLE jobs ADD COLUMN reporting_time TEXT NOT NULL DEFAULT '08:00'"),
+        ('reporting_formats', "ALTER TABLE jobs ADD COLUMN reporting_formats TEXT NOT NULL DEFAULT 'pdf,xlsm'"),
+        ('reporting_last_sent_at', 'ALTER TABLE jobs ADD COLUMN reporting_last_sent_at TEXT'),
+        ('reporting_last_status', "ALTER TABLE jobs ADD COLUMN reporting_last_status TEXT NOT NULL DEFAULT ''"),
+        ('reporting_last_error', "ALTER TABLE jobs ADD COLUMN reporting_last_error TEXT NOT NULL DEFAULT ''"),
+        ('reporting_last_period', "ALTER TABLE jobs ADD COLUMN reporting_last_period TEXT NOT NULL DEFAULT ''"),
+    ]:
+        if col not in jcols:
+            con.execute(ddl)
     # V2.3: OFF is no longer a selectable norm mode. Legacy OFF jobs become operator-time jobs.
     con.execute("UPDATE jobs SET norm_mode='time', norm_enabled=1 WHERE norm_mode IS NULL OR norm_mode='' OR norm_mode='off'")
     rcols = table_columns(con, 'records')
@@ -243,6 +263,30 @@ def calc_norm_fields(job, checked, operator_time_text=''):
             raise ValueError('Zadaj čas práce / Working time.')
         return work_seconds, work_seconds / checked
     return 0, None
+
+
+def parse_job_reporting(data):
+    enabled = 1 if data.get('reporting_enabled') else 0
+    recipients = str(data.get('reporting_recipients') or '').strip()
+    report_time = str(data.get('reporting_time') or '08:00').strip()
+    if not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', report_time):
+        raise ValueError('Čas automatického reportu musí byť vo formáte HH:MM.')
+    raw_formats = data.get('reporting_formats') or 'pdf,xlsm'
+    if isinstance(raw_formats, (list, tuple)):
+        formats = [str(x).strip().lower() for x in raw_formats if str(x).strip()]
+    else:
+        formats = [x.strip().lower() for x in re.split(r'[,;\s]+', str(raw_formats)) if x.strip()]
+    clean_formats=[]
+    for fmt in formats:
+        if fmt not in ('pdf','xlsx','xlsm'):
+            raise ValueError('Formát automatického reportu môže byť PDF, XLSX alebo XLSM.')
+        if fmt not in clean_formats:
+            clean_formats.append(fmt)
+    if enabled and not recipients:
+        raise ValueError('Pri automatickom reportingu zadaj aspoň jedného príjemcu.')
+    if enabled and not clean_formats:
+        raise ValueError('Pri automatickom reportingu vyber aspoň jeden formát.')
+    return enabled, recipients, report_time, ','.join(clean_formats)
 
 
 def parse_job_norm(data):
@@ -831,7 +875,8 @@ class Handler(BaseHTTPRequestHandler):
                 if norm_mode!='time':
                     for p in parts: p['norm_per_hour']=None
                 errors=[str(x).strip() for x in errors if str(x).strip()]
-                now=datetime.now().isoformat(timespec='seconds'); con=db(); cur=con.execute('INSERT INTO jobs(order_number,brief_description,norm_enabled,norm_time,norm_mode,norm_ct_seconds,active,created_at,updated_at,location_id) VALUES(?,?,?,?,?,?,?,?,?,?)',(order,brief,norm_enabled,norm_time,norm_mode,norm_ct_seconds,1 if data.get('active',True) else 0,now,now,data.get('location_id'))); jid=cur.lastrowid
+                report_enabled,report_recipients,report_time,report_formats=parse_job_reporting(data)
+                now=datetime.now().isoformat(timespec='seconds'); con=db(); cur=con.execute('INSERT INTO jobs(order_number,brief_description,norm_enabled,norm_time,norm_mode,norm_ct_seconds,active,created_at,updated_at,location_id,reporting_enabled,reporting_recipients,reporting_time,reporting_formats) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(order,brief,norm_enabled,norm_time,norm_mode,norm_ct_seconds,1 if data.get('active',True) else 0,now,now,data.get('location_id'),report_enabled,report_recipients,report_time,report_formats)); jid=cur.lastrowid
                 for i,p in enumerate(parts): con.execute('INSERT INTO job_parts(job_id,item_number,part_name,norm_per_hour,sort_order,active) VALUES(?,?,?,?,?,1)',(jid,p['item_number'],p['part_name'],p.get('norm_per_hour'),i))
                 for i,e in enumerate(errors): con.execute('INSERT INTO job_errors(job_id,name,sort_order,active) VALUES(?,?,?,1)',(jid,e,i))
                 con.commit(); job=get_job(con,jid,True); con.close(); return self._json({'job':job},201)
@@ -875,7 +920,8 @@ class Handler(BaseHTTPRequestHandler):
                 if norm_mode!='time':
                     for p in parts: p['norm_per_hour']=None
                 errors=[str(x).strip() for x in (data.get('errors') or []) if str(x).strip()]
-                con=db(); con.execute('UPDATE jobs SET order_number=?,brief_description=?,norm_enabled=?,norm_time=?,norm_mode=?,norm_ct_seconds=?,active=?,updated_at=?,location_id=? WHERE id=?',(order,brief,norm_enabled,norm_time,norm_mode,norm_ct_seconds,1 if data.get('active',True) else 0,datetime.now().isoformat(timespec='seconds'),data.get('location_id'),jid))
+                report_enabled,report_recipients,report_time,report_formats=parse_job_reporting(data)
+                con=db(); con.execute('UPDATE jobs SET order_number=?,brief_description=?,norm_enabled=?,norm_time=?,norm_mode=?,norm_ct_seconds=?,active=?,updated_at=?,location_id=?,reporting_enabled=?,reporting_recipients=?,reporting_time=?,reporting_formats=? WHERE id=?',(order,brief,norm_enabled,norm_time,norm_mode,norm_ct_seconds,1 if data.get('active',True) else 0,datetime.now().isoformat(timespec='seconds'),data.get('location_id'),report_enabled,report_recipients,report_time,report_formats,jid))
                 # Do not delete definitions referenced by historical records. Reuse matching IDs and deactivate removed definitions.
                 old_parts=con.execute('SELECT * FROM job_parts WHERE job_id=?',(jid,)).fetchall(); part_by_num={x['item_number']:x for x in old_parts}
                 con.execute('UPDATE job_parts SET active=0 WHERE job_id=?',(jid,))

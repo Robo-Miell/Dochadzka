@@ -1,4 +1,4 @@
-name: Scheduled attendance reports
+name: Scheduled attendance and quality reports
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: attendance-reporting
+  group: attendance-quality-reporting
   cancel-in-progress: false
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Trigger due reports
+      - name: Trigger due attendance and quality reports
         env:
           REPORTING_JOB_SECRET: ${{ secrets.REPORTING_JOB_SECRET }}
         run: |

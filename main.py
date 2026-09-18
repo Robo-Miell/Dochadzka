@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+import sys
 import reportlab
 import xlwt
 import xlsxwriter
@@ -1992,24 +1993,17 @@ def microsoft_graph_access_token() -> str:
     return access_token
 
 
-def microsoft_graph_send_report(
-    location: Location,
+def microsoft_graph_send_email(
+    subject: str,
+    content: str,
     recipients: list[str],
-    date_from: date,
-    date_to: date,
     attachments: list[tuple[str, bytes, str, str]],
 ):
+    """Send a generic message through the configured Microsoft 365 mailbox."""
     if not MS_SENDER_EMAIL:
         raise RuntimeError("MS_SENDER_EMAIL nie je nastavený v Render Environment")
-
-    period = export_period_text_en(date_from, date_to)
-    subject = f"Attendance Report – {location.name} – {period}"
-    content = (
-        "Hello,\n\n"
-        f"please find attached the attendance report for location {location.name} "
-        f"for {period}.\n\n"
-        "This e-mail was sent automatically by the MIELL Attendance system."
-    )
+    if not recipients:
+        raise RuntimeError("E-mail nemá žiadneho príjemcu")
 
     graph_attachments = []
     for filename, payload, maintype, subtype in attachments:
@@ -2071,6 +2065,24 @@ def microsoft_graph_send_report(
     if status != 202:
         raise RuntimeError(f"Microsoft Graph vrátil neočakávaný HTTP stav {status}")
     return {"accepted": True, "status": status}
+
+
+def microsoft_graph_send_report(
+    location: Location,
+    recipients: list[str],
+    date_from: date,
+    date_to: date,
+    attachments: list[tuple[str, bytes, str, str]],
+):
+    period = export_period_text_en(date_from, date_to)
+    subject = f"Attendance Report – {location.name} – {period}"
+    content = (
+        "Hello,\n\n"
+        f"please find attached the attendance report for location {location.name} "
+        f"for {period}.\n\n"
+        "This e-mail was sent automatically by the MIELL Attendance system."
+    )
+    return microsoft_graph_send_email(subject, content, recipients, attachments)
 
 def send_location_report(
     session: Session,
@@ -2236,12 +2248,22 @@ def run_due_reporting(
             session.commit()
             errors.append({"location_id": location.id, "location_name": location.name, "error": str(exc)})
 
+    quality_result = {"sent": [], "skipped": [], "errors": []}
+    try:
+        from quality.integration import run_due_quality_reports
+        quality_result = run_due_quality_reports(sys.modules[__name__], now_local)
+        for item in quality_result.get("errors", []):
+            errors.append({"module": "quality", **item})
+    except Exception as exc:
+        errors.append({"module": "quality", "error": str(exc)})
+
     return {
         "ok": len(errors) == 0,
         "checked_at": now_local.isoformat(),
         "timezone": REPORTING_TIMEZONE,
         "sent": sent,
         "skipped": skipped,
+        "quality": quality_result,
         "errors": errors,
     }
 
@@ -2344,3 +2366,13 @@ def export_csv(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="dochadzka_export.csv"'},
     )
+
+
+# Register the shared Quality Reporting module after the core API is defined.
+from quality import integration as quality_integration
+import unified_routes
+
+_quality_data_dir = os.getenv("MIELL_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
+quality_integration.configure(_quality_data_dir)
+quality_integration.register(sys.modules[__name__])
+unified_routes.register(sys.modules[__name__])

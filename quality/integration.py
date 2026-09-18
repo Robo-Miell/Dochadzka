@@ -10,8 +10,9 @@ import re
 import sqlite3
 import shutil
 import threading
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
@@ -144,6 +145,192 @@ class ResponseAdapter(legacy.Handler):
         return Response(self.wfile.getvalue(), self.status, headers=self.output_headers)
 
 
+
+def normalize_job_reporting_payload(payload, host):
+    """Validate and normalize per-job automatic report settings."""
+    enabled = bool(payload.get('reporting_enabled', False))
+    recipients = host.normalize_reporting_recipients(payload.get('reporting_recipients', ''))
+    report_time = host.validate_time(str(payload.get('reporting_time') or '08:00'), 'Čas reportu') or '08:00'
+    raw_formats = payload.get('reporting_formats', 'pdf,xlsm')
+    if isinstance(raw_formats, (list, tuple)):
+        values = [str(x).strip().lower() for x in raw_formats if str(x).strip()]
+    else:
+        values = [x.strip().lower() for x in re.split(r'[,;\s]+', str(raw_formats or '')) if x.strip()]
+    formats = []
+    for value in values:
+        if value not in {'pdf', 'xlsx', 'xlsm'}:
+            raise HTTPException(400, 'Formát quality reportu môže byť PDF, XLSX alebo XLSM')
+        if value not in formats:
+            formats.append(value)
+    if enabled and not recipients:
+        raise HTTPException(400, 'Pri automatickom reportingu zadaj aspoň jedného príjemcu')
+    if enabled and not formats:
+        raise HTTPException(400, 'Pri automatickom reportingu vyber aspoň jeden formát')
+    payload['reporting_enabled'] = enabled
+    payload['reporting_recipients'] = recipients
+    payload['reporting_time'] = report_time
+    payload['reporting_formats'] = ','.join(formats)
+    return payload
+
+
+def _quality_report_period(today: date):
+    report_date = today - timedelta(days=1)
+    return report_date, f'daily:{report_date.isoformat()}'
+
+
+def _read_and_cleanup_export(path):
+    path = Path(path)
+    payload = path.read_bytes()
+    parent = path.parent
+    path.unlink(missing_ok=True)
+    if parent.name.startswith('miell_export_'):
+        try:
+            parent.rmdir()
+        except OSError:
+            shutil.rmtree(parent, ignore_errors=True)
+    return payload
+
+
+def _update_job_report_state(job_id, status, error='', period_key=None):
+    with _lock, legacy.db() as con:
+        if period_key is None:
+            con.execute('UPDATE jobs SET reporting_last_sent_at=?,reporting_last_status=?,reporting_last_error=? WHERE id=?',
+                        (datetime.utcnow().isoformat(timespec='seconds'), status, str(error or '')[:1500], job_id))
+        else:
+            con.execute('UPDATE jobs SET reporting_last_sent_at=?,reporting_last_status=?,reporting_last_error=?,reporting_last_period=? WHERE id=?',
+                        (datetime.utcnow().isoformat(timespec='seconds'), status, str(error or '')[:1500], period_key, job_id))
+        con.commit()
+
+
+def send_quality_job_report(host, job_id, report_date, *, scheduled=False, period_key=None):
+    """Build and send the previous-day quality report for one job."""
+    with _lock, legacy.db() as con:
+        job = legacy.get_job(con, int(job_id), True)
+        if not job:
+            raise HTTPException(404, 'Zákazka neexistuje')
+        recipients_text = host.normalize_reporting_recipients(job.get('reporting_recipients') or '')
+        recipients = [x.strip() for x in recipients_text.split(',') if x.strip()]
+        if not recipients:
+            raise HTTPException(400, 'Pri zákazke nie sú nastavení príjemcovia reportu')
+        formats = [x.strip().lower() for x in str(job.get('reporting_formats') or '').split(',') if x.strip()]
+        formats = [x for x in formats if x in {'pdf', 'xlsx', 'xlsm'}]
+        if not formats:
+            raise HTTPException(400, 'Pri zákazke nie je vybraný formát reportu')
+        records = legacy.record_query(
+            con,
+            {'id': 0, 'role': 'admin'},
+            {'job_id': [str(job_id)], 'date': [report_date.isoformat()], 'record_status': ['active']},
+        )
+
+    if not records:
+        _update_job_report_state(
+            int(job_id),
+            'skipped',
+            'Bez údajov za predchádzajúci deň – report neodoslaný.',
+            period_key if scheduled else None,
+        )
+        return {
+            'ok': True,
+            'sent': False,
+            'skipped': True,
+            'reason': 'no_data',
+            'job_id': int(job_id),
+            'order_number': job['order_number'],
+            'date': report_date.isoformat(),
+            'recipients': recipients,
+            'formats': formats,
+            'rows': 0,
+        }
+
+    attachments = []
+    safe_order = legacy.safe(job.get('order_number') or f'job_{job_id}')
+    try:
+        if 'pdf' in formats:
+            payload = _read_and_cleanup_export(
+                legacy.make_pdf(job, records, f'Automatic daily report / {report_date.isoformat()}')
+            )
+            attachments.append((
+                f'Quality_Report_{safe_order}_{report_date.isoformat()}.pdf',
+                payload,
+                'application',
+                'pdf',
+            ))
+        if 'xlsx' in formats:
+            payload = _read_and_cleanup_export(legacy.make_summary_xlsx(job, records))
+            attachments.append((
+                f'Quality_Report_{safe_order}_{report_date.isoformat()}.xlsx',
+                payload,
+                'application',
+                'vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ))
+        if 'xlsm' in formats:
+            payload = _read_and_cleanup_export(legacy.daily_template_export(job, records))
+            attachments.append((
+                f'Quality_Daily_Report_{safe_order}_{report_date.isoformat()}.xlsm',
+                payload,
+                'application',
+                'vnd.ms-excel.sheet.macroEnabled.12',
+            ))
+
+        subject = f"Quality Report – {job['order_number']} – {report_date.isoformat()}"
+        content = (
+            "Hello,\n\n"
+            f"please find attached the quality report for order {job['order_number']} "
+            f"for {report_date.isoformat()}.\n\n"
+            "This e-mail was sent automatically by the MIELL Quality Reporting system."
+        )
+        host.microsoft_graph_send_email(subject, content, recipients, attachments)
+    except Exception as exc:
+        _update_job_report_state(int(job_id), 'error', str(exc), None)
+        raise
+
+    _update_job_report_state(int(job_id), 'sent', '', period_key if scheduled else None)
+    return {
+        'ok': True,
+        'sent': True,
+        'skipped': False,
+        'job_id': int(job_id),
+        'order_number': job['order_number'],
+        'date': report_date.isoformat(),
+        'recipients': recipients,
+        'formats': formats,
+        'rows': len(records),
+    }
+
+
+def run_due_quality_reports(host, now_local):
+    """Run all due per-job quality reports. Called by the shared scheduler endpoint."""
+    report_date, period_key = _quality_report_period(now_local.date())
+    with _lock, legacy.db() as con:
+        jobs = [dict(r) for r in con.execute(
+            'SELECT id,order_number,reporting_time,reporting_last_period FROM jobs WHERE active=1 AND COALESCE(reporting_enabled,0)=1 ORDER BY id'
+        ).fetchall()]
+
+    sent, skipped, errors = [], [], []
+    for job in jobs:
+        try:
+            hh, mm = map(int, str(job.get('reporting_time') or '08:00').split(':'))
+        except Exception:
+            errors.append({'job_id': job['id'], 'order_number': job['order_number'], 'error': 'Neplatný čas reportingu'})
+            continue
+        if (now_local.hour, now_local.minute) < (hh, mm):
+            continue
+        if job.get('reporting_last_period') == period_key:
+            continue
+        try:
+            result = send_quality_job_report(
+                host,
+                int(job['id']),
+                report_date,
+                scheduled=True,
+                period_key=period_key,
+            )
+            (skipped if result.get('skipped') else sent).append(result)
+        except Exception as exc:
+            errors.append({'job_id': job['id'], 'order_number': job['order_number'], 'error': str(exc)})
+    return {'sent': sent, 'skipped': skipped, 'errors': errors}
+
+
 def register(host):
     app = host.app
 
@@ -181,6 +368,12 @@ def register(host):
                 sync_identity(u)
             with legacy.db() as con:
                 return {'users': [dict(r) for r in con.execute('SELECT id,COALESCE(central_login,username) AS username,display_name,role,active FROM users ORDER BY display_name')]}
+        report_match = re.fullmatch(r'jobs/(\d+)/report/send-now', endpoint)
+        if report_match and request.method == 'POST':
+            if user.role != 'admin':
+                raise HTTPException(403, 'Len pre administrátora')
+            report_date, _ = _quality_report_period(datetime.now(ZoneInfo(host.REPORTING_TIMEZONE)).date())
+            return await run_in_threadpool(send_quality_job_report, host, int(report_match.group(1)), report_date)
         # Keep authentication and user management out of the legacy handler.
         if not re.fullmatch(r'(dashboard|jobs(?:/\d+(?:/(?:summary|archive|restore))?)?|records(?:/\d+(?:/(?:archive|restore))?)?|export/(?:records-xlsx|records-pdf|daily-xlsm|xlsx|pdf))', endpoint):
             raise HTTPException(404, 'Endpoint neexistuje')
@@ -203,6 +396,7 @@ def register(host):
             if not lid or session.get(host.Location,lid) is None:
                 raise HTTPException(400, 'Vyber prevádzku vytvorenú v Dochádzke')
             payload['location_id']=lid
+            normalize_job_reporting_payload(payload, host)
         if endpoint == 'records' and request.method == 'POST':
             try:
                 target_id=int(payload.get('employee_id') or user.id)
