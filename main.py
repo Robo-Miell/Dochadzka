@@ -697,7 +697,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"name": "Dochádzka API", "version": "5.14", "admin": "/admin", "docs": "/docs"}
+    return FileResponse(os.path.join(static_dir, "portal.html"))
 
 
 @app.get("/admin")
