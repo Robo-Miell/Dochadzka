@@ -7,9 +7,15 @@ _data = tempfile.TemporaryDirectory(prefix='miell_portal_test_')
 os.environ['MIELL_DATA_DIR'] = _data.name
 os.environ['DATABASE_URL'] = 'sqlite:///' + (Path(_data.name) / 'attendance.db').as_posix()
 os.environ['JWT_SECRET'] = 'portal-routing-test-only'
+os.environ['ADMIN_PASSWORD'] = 'PortalTest123!'
 
 from fastapi.testclient import TestClient
 import main
+
+
+def teardown_module():
+    main.engine.dispose()
+    _data.cleanup()
 
 
 def test_portal_and_attendance_routes():
@@ -25,3 +31,36 @@ def test_portal_and_attendance_routes():
     assert script.status_code == 200
     assert "location.replace('/admin')" in script.text
     assert client.get('/api/me').status_code == 401
+
+
+def test_roles_and_operator_cannot_edit_records():
+    with TestClient(main.app) as client:
+        def auth(login, password):
+            r = client.post('/api/auth/login', json=dict(login=login, password=password))
+            assert r.status_code == 200, r.text
+            return {'Authorization': 'Bearer ' + r.json()['access_token']}
+        admin = auth('admin', 'PortalTest123!')
+        loc = client.post('/api/locations', headers=admin, json={'name': 'Test location'}).json()['id']
+        def create(name, role):
+            return client.post('/api/users', headers=admin, json=dict(personal_number=name, name=name, login=name, password='TestUser123!', location_ids=[loc], role=role))
+        assert create('invalid', 'owner').status_code == 422
+        created = create('second-admin', 'admin')
+        assert created.status_code == 200, created.text
+        second = auth('second-admin', 'TestUser123!')
+        assert client.get('/api/users', headers=second).status_code == 200
+        operator = create('operator-test', 'employee')
+        assert operator.status_code == 200
+        op = auth('operator-test', 'TestUser123!')
+        assert client.post('/api/users', headers=op, json=dict(personal_number='hack', name='hack', login='hack', password='TestUser123!', role='admin')).status_code == 403
+        assert client.patch('/api/users/'+str(operator.json()['id']), headers=op, json={'role': 'admin'}).status_code == 403
+        record = client.post('/api/attendance', headers=admin, json=dict(user_id=operator.json()['id'], work_date='2026-09-01', location_id=loc, type='Práca', time_from='08:00', time_to='16:00'))
+        assert record.status_code == 200, record.text
+        rid = record.json()['id']
+        assert client.patch(f'/api/attendance/{rid}', headers=op, json={'note':'changed'}).status_code == 403
+        assert client.delete(f'/api/attendance/{rid}', headers=op).status_code == 403
+        assert client.patch('/quality/api/records/1', headers=op, json={}).status_code in (404,405)
+        assert client.put('/quality/api/records/1', headers=op, json={}).status_code == 403
+        own = client.get('/api/me', headers=admin).json()['id']
+        assert client.patch(f'/api/users/{own}', headers=admin, json={'role':'employee'}).status_code == 409
+        assert client.patch('/api/users/'+str(created.json()['id']), headers=admin, json={'role':'employee'}).status_code == 200
+        assert client.get('/api/users', headers=second).status_code == 401

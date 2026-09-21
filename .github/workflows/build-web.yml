@@ -1,118 +1,27 @@
-name: Build Web PWA
-
+name: Redirect legacy web to MIELL
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-    paths:
-      - 'mobile_flutter/**'
-      - '.github/workflows/build-web.yml'
-
+    branches: [main]
+    paths: ['pages-redirect/**', '.github/workflows/build-web.yml']
 permissions:
   contents: read
   pages: write
   id-token: write
-
+concurrency:
+  group: pages
+  cancel-in-progress: false
 jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Create Web platform files
-        working-directory: mobile_flutter
-        run: flutter create . --platforms=web --project-name dochadzka_mobile --org sk.miell
-
-      - name: Install dependencies
-        working-directory: mobile_flutter
-        run: flutter pub get
-
-      - name: Apply MIELL web branding
-        working-directory: mobile_flutter
-        run: |
-          cp assets/app_icon.png web/miell-favicon.png
-          cp assets/app_icon.png web/icons/Icon-192.png
-          cp assets/app_icon.png web/icons/Icon-512.png
-          cp assets/app_icon.png web/icons/Icon-maskable-192.png
-          cp assets/app_icon.png web/icons/Icon-maskable-512.png
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import json
-
-          # index.html
-          index_path = Path("web/index.html")
-          text = index_path.read_text(encoding="utf-8")
-
-          text = text.replace(
-              'href="favicon.png"',
-              'href="miell-favicon.png?v=20260831"'
-          )
-
-          text = text.replace(
-              '<title>dochadzka_mobile</title>',
-              '<title>MIELL Dochádzka</title>'
-          )
-
-          text = text.replace(
-              'content="dochadzka_mobile"',
-              'content="MIELL Dochádzka"'
-          )
-
-          index_path.write_text(text, encoding="utf-8")
-
-          # manifest.json
-          manifest_path = Path("web/manifest.json")
-          data = json.loads(manifest_path.read_text(encoding="utf-8"))
-
-          data["name"] = "MIELL Dochádzka"
-          data["short_name"] = "Dochádzka"
-          data["description"] = "MIELL dochádzková aplikácia"
-
-          manifest_path.write_text(
-              json.dumps(data, ensure_ascii=False, indent=2),
-              encoding="utf-8"
-          )
-          PY
-
-      - name: Build Flutter Web
-        working-directory: mobile_flutter
-        run: >-
-          flutter build web
-          --release
-          --base-href /Dochadzka/
-          --dart-define=API_URL=https://dochadzka1.onrender.com
-
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: mobile_flutter/build/web
-
   deploy:
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
-    runs-on: ubuntu-latest
-    needs: build
-
-    permissions:
-      pages: write
-      id-token: write
-
     steps:
-      - name: Deploy to GitHub Pages
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: pages-redirect
+      - uses: actions/deploy-pages@v4
         id: deployment
-        uses: actions/deploy-pages@v4

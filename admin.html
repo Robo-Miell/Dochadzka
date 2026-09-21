@@ -58,7 +58,7 @@
 
     <div id="employees" class="tab hidden">
       <div class="top"><div><h3>Zamestnanci</h3><div class="muted">Môžeš meniť osobné číslo, meno, login, heslo, priradiť viac prevádzok aj meniť aktivitu.</div></div><button id="newEmployee" class="primary">+ Zamestnanec</button></div>
-      <div class="table"><table><thead><tr><th>Os. číslo</th><th>Meno</th><th>Login</th><th>Prevádzky</th><th>Stav</th><th>Akcie</th></tr></thead><tbody id="empBody"></tbody></table></div>
+      <div class="table"><table><thead><tr><th>Os. číslo</th><th>Meno</th><th>Login</th><th>Práva</th><th>Prevádzky</th><th>Stav</th><th>Akcie</th></tr></thead><tbody id="empBody"></tbody></table></div>
     </div>
 
     <div id="locations" class="tab hidden">
@@ -120,7 +120,7 @@
 
 <dialog id="empDialog"><div class="modal">
   <div class="top"><h3 id="empTitle">Nový zamestnanec</h3><button data-close="empDialog" class="ghost">Zavrieť</button></div>
-  <div class="grid"><div><label>Osobné číslo</label><input id="en"></div><div><label>Meno</label><input id="ename"></div><div><label>Login</label><input id="elogin" autocomplete="off"></div><div id="epassWrap"><label>Heslo</label><input id="epass" type="password" autocomplete="new-password"><div id="passHint" class="hint">Minimálne 8 znakov.</div></div><div id="resetPassWrap" class="hidden"><label>Heslo</label><button id="openResetPass" type="button" class="warn" style="width:100%">Resetovať heslo</button><div class="hint">Po resete bude zamestnanec odhlásený zo všetkých aktívnych prihlásení.</div></div><div style="grid-column:1/-1"><label>Prevádzky</label><div id="elocs" class="location-checks"></div><div class="hint">Vyber jednu alebo viac prevádzok. Zamestnanec si pri zadávaní dochádzky zvolí konkrétnu prevádzku.</div></div><div><label>Stav</label><select id="eactive"><option value="true">Aktívny</option><option value="false">Neaktívny</option></select></div></div>
+  <div class="grid"><div><label>Osobné číslo</label><input id="en"></div><div><label>Meno</label><input id="ename"></div><div><label>Login</label><input id="elogin" autocomplete="off"></div><div id="epassWrap"><label>Heslo</label><input id="epass" type="password" autocomplete="new-password"><div id="passHint" class="hint">Minimálne 8 znakov.</div></div><div id="resetPassWrap" class="hidden"><label>Heslo</label><button id="openResetPass" type="button" class="warn" style="width:100%">Resetovať heslo</button><div class="hint">Po resete bude zamestnanec odhlásený zo všetkých aktívnych prihlásení.</div></div><div style="grid-column:1/-1"><label>Prevádzky</label><div id="elocs" class="location-checks"></div><div class="hint">Vyber jednu alebo viac prevádzok. Zamestnanec si pri zadávaní dochádzky zvolí konkrétnu prevádzku.</div></div><div><label>Práva</label><select id="erole"><option value="employee">OPERATOR</option><option value="admin">ADMIN</option></select><label>Stav</label><select id="eactive"><option value="true">Aktívny</option><option value="false">Neaktívny</option></select></div></div>
   <p id="empError" class="error"></p><button id="saveEmp" class="primary" style="margin-top:8px">Uložiť</button>
 </div></dialog>
 
@@ -221,7 +221,7 @@
 </div></dialog>
 
 <script>
-let token=localStorage.getItem("dochadzka_token")||"", users=[], locations=[], shifts=[], attendance=[];
+let token=localStorage.getItem("dochadzka_token")||"", users=[], accounts=[], locations=[], shifts=[], attendance=[];
 let selectedFilterUsers=new Set(), selectedExportUsers=new Set(), attendanceSelectedUserId=null;
 let empEditId=null, locEditId=null, attEditId=null;
 let locShiftDraft=[], locShiftDeleted=[];
@@ -245,7 +245,7 @@ async function login(){
 
 async function refresh(){
   const current=await api("/api/me");if(current.role!=="admin"){location.replace("/");return}$("attendanceUser").textContent=current.name+" · ADMIN";
-  [users,locations,shifts,attendance]=await Promise.all([api("/api/users"),api("/api/locations"),api("/api/shifts"),api("/api/attendance")]);
+  [accounts,locations,shifts,attendance]=await Promise.all([api("/api/users?include_admin=true"),api("/api/locations"),api("/api/shifts"),api("/api/attendance")]);users=accounts.filter(x=>x.role!=="admin");
   $("sEmp").textContent=users.length;$("sLoc").textContent=locations.length;$("sPend").textContent=attendance.filter(x=>x.status==="pending").length;$("sAtt").textContent=attendance.length;
   renderEmployees();renderLocations();fillSelects();renderAttendance();renderPending();
 }
@@ -333,7 +333,7 @@ function fillSelects(){
 }
 
 function renderEmployees(){
-  $("empBody").innerHTML=users.map(x=>`<tr><td><b>${esc(x.personal_number)}</b></td><td>${esc(x.name)}</td><td>${esc(x.login)}</td><td>${esc((Array.isArray(x.location_names)&&x.location_names.length?x.location_names:[x.location_name].filter(Boolean)).join(", "))}</td><td>${x.active?'<span class="badge approved">Aktívny</span>':'<span class="badge rejected">Neaktívny</span>'}</td><td><div class="actions"><button class="ghost editEmp" data-id="${x.id}">Upraviť</button><button class="${x.active?'warn':'ok'} toggle" data-id="${x.id}">${x.active?'Deaktivovať':'Aktivovať'}</button><button class="danger delEmp" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="6" class="empty">Žiadni zamestnanci.</td></tr>';
+  $("empBody").innerHTML=accounts.map(x=>`<tr><td><b>${esc(x.personal_number)}</b></td><td>${esc(x.name)}</td><td>${esc(x.login)}</td><td>${x.role==="admin"?"ADMIN":"OPERATOR"}</td><td>${esc((Array.isArray(x.location_names)&&x.location_names.length?x.location_names:[x.location_name].filter(Boolean)).join(", "))}</td><td>${x.active?'<span class="badge approved">Aktívny</span>':'<span class="badge rejected">Neaktívny</span>'}</td><td><div class="actions"><button class="ghost editEmp" data-id="${x.id}">Upraviť</button><button ${x.role==="admin"?"disabled":""} class="${x.active?'warn':'ok'} toggle" data-id="${x.id}">${x.active?'Deaktivovať':'Aktivovať'}</button><button ${x.role==="admin"?"disabled":""} class="danger delEmp" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="6" class="empty">Žiadni zamestnanci.</td></tr>';
 
   document.querySelectorAll(".editEmp").forEach(b=>b.onclick=()=>openEmployee(Number(b.dataset.id)));
   document.querySelectorAll(".toggle").forEach(b=>b.onclick=async()=>{
@@ -411,8 +411,8 @@ function renderEmployeeLocationChoices(selectedIds=[]){
 }
 
 function openEmployee(id=null){
-  empEditId=id;$("empError").textContent="";const u=id?users.find(x=>x.id===id):null;
-  $("empTitle").textContent=u?"Upraviť zamestnanca":"Nový zamestnanec";$("en").value=u?.personal_number||"";$("ename").value=u?.name||"";$("elogin").value=u?.login||"";$("epass").value="";$("passHint").textContent="Minimálne 8 znakov.";$("eactive").value=String(u?.active??true);
+  empEditId=id;$("empError").textContent="";const u=id?accounts.find(x=>x.id===id):null;
+  $("empTitle").textContent=u?"Upraviť zamestnanca":"Nový zamestnanec";$("en").value=u?.personal_number||"";$("ename").value=u?.name||"";$("elogin").value=u?.login||"";$("epass").value="";$("passHint").textContent="Minimálne 8 znakov.";$("eactive").value=String(u?.active??true);$("erole").value=u?.role||"employee";
   $("epassWrap").classList.toggle("hidden",!!u);$("resetPassWrap").classList.toggle("hidden",!u);
   renderEmployeeLocationChoices(employeeLocationIds(u));
   $("empDialog").showModal();
@@ -420,15 +420,15 @@ function openEmployee(id=null){
 async function saveEmployee(){
   $("empError").textContent="";try{
     const locationIds=[...document.querySelectorAll(".empLocCheck:checked")].map(x=>Number(x.value));
-    if(!locationIds.length)throw new Error("Vyber aspoň jednu prevádzku");
-    const body={personal_number:$("en").value.trim(),name:$("ename").value.trim(),login:$("elogin").value.trim(),location_ids:locationIds,active:$("eactive").value==="true"};
+    if(!locationIds.length && $("erole").value!=="admin")throw new Error("Vyber aspoň jednu prevádzku");
+    const body={role:$("erole").value,personal_number:$("en").value.trim(),name:$("ename").value.trim(),login:$("elogin").value.trim(),location_ids:locationIds,active:$("eactive").value==="true"};
     if(!empEditId){if($("epass").value.length<8)throw new Error("Heslo musí mať aspoň 8 znakov");body.password=$("epass").value;}
     await api(empEditId?`/api/users/${empEditId}`:"/api/users",{method:empEditId?"PATCH":"POST",body:JSON.stringify(body)});$("empDialog").close();await refresh();
   }catch(e){$("empError").textContent=e.message}
 }
 function openResetPassword(){
   if(!empEditId)return;
-  const u=users.find(x=>x.id===empEditId);$("resetPassEmployee").textContent=u?`${u.name} (${u.login})`:"";$("resetPass1").value="";$("resetPass2").value="";$("resetPassError").textContent="";$("resetPassDialog").showModal();
+  const u=accounts.find(x=>x.id===empEditId);$("resetPassEmployee").textContent=u?`${u.name} (${u.login})`:"";$("resetPass1").value="";$("resetPass2").value="";$("resetPassError").textContent="";$("resetPassDialog").showModal();
 }
 async function saveResetPassword(){
   $("resetPassError").textContent="";try{

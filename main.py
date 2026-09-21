@@ -10,7 +10,7 @@ import reportlab
 import xlwt
 import xlsxwriter
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import Optional, Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -230,6 +230,7 @@ class ShiftUpdate(BaseModel):
 
 
 class UserIn(BaseModel):
+    role: Literal['admin', 'employee'] = 'employee'
     personal_number: str
     name: str
     login: str
@@ -241,6 +242,7 @@ class UserIn(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    role: Optional[Literal['admin', 'employee']] = None
     personal_number: Optional[str] = None
     name: Optional[str] = None
     login: Optional[str] = None
@@ -979,8 +981,11 @@ def delete_shift(shift_id: int, session: Session = Depends(db), _: User = Depend
 
 
 @app.get("/api/users")
-def users(session: Session = Depends(db), _: User = Depends(admin_only)):
-    items = session.scalars(select(User).where(User.role == "employee").order_by(User.name)).all()
+def users(include_admin: bool = False, session: Session = Depends(db), _: User = Depends(admin_only)):
+    stmt = select(User).order_by(User.name)
+    if not include_admin:
+        stmt = stmt.where(User.role == 'employee')
+    items = session.scalars(stmt).all()
     return [serialize_user(x) for x in items]
 
 
@@ -996,16 +1001,16 @@ def create_user(data: UserIn, session: Session = Depends(db), _: User = Depends(
     if session.scalar(select(User).where(User.personal_number == personal_number)):
         raise HTTPException(400, "Osobné číslo už existuje")
     requested_ids = data.location_ids or ([data.location_id] if data.location_id is not None else [])
-    locs = validate_user_locations(session, requested_ids)
+    locs = validate_user_locations(session, requested_ids) if requested_ids or data.role != 'admin' else []
     new_password = validate_new_password(data.password)
     obj = User(
         personal_number=personal_number,
         name=name,
         login=login_value,
         password_hash=pwd.hash(new_password),
-        role="employee",
+        role=data.role,
         active=data.active,
-        location_id=locs[0].id,
+        location_id=locs[0].id if locs else None,
     )
     obj.locations = locs
     session.add(obj)
@@ -1022,10 +1027,17 @@ def update_user(
     _: User = Depends(admin_only),
 ):
     obj = session.get(User, user_id)
-    if not obj or obj.role != "employee":
+    if not obj:
         raise HTTPException(404, "Zamestnanec neexistuje")
 
     fields = data.model_fields_set
+    if obj.role == 'admin' and (data.role == 'employee' or data.active is False):
+        other_admin = session.scalar(select(User.id).where(User.role == 'admin', User.active == True, User.id != obj.id).limit(1))
+        if obj.id == _.id or not other_admin:
+            raise HTTPException(409, 'Vlastné ani posledné aktívne administrátorské konto nemožno zbaviť práv.')
+    if data.role is not None and data.role != obj.role:
+        obj.role = data.role
+        obj.token_version = int(obj.token_version or 0) + 1
     if "personal_number" in fields:
         value = (data.personal_number or "").strip()
         if not value:
@@ -1051,12 +1063,12 @@ def update_user(
         requested_ids = (data.location_ids or []) if "location_ids" in fields else []
         if not requested_ids and "location_id" in fields and data.location_id is not None:
             requested_ids = [data.location_id]
-        locs = validate_user_locations(session, requested_ids)
+        locs = validate_user_locations(session, requested_ids) if requested_ids or obj.role != 'admin' else []
         obj.locations = locs
         if data.location_id is not None and any(x.id == data.location_id for x in locs):
             obj.location_id = data.location_id
         elif obj.location_id not in [x.id for x in locs]:
-            obj.location_id = locs[0].id
+            obj.location_id = locs[0].id if locs else None
     if "active" in fields and data.active is not None:
         obj.active = data.active
     if "password" in fields and data.password:
@@ -1077,7 +1089,7 @@ def reset_user_password(
     _: User = Depends(admin_only),
 ):
     obj = session.get(User, user_id)
-    if not obj or obj.role != "employee":
+    if not obj:
         raise HTTPException(404, "Zamestnanec neexistuje")
     new_password = validate_new_password(data.new_password)
     obj.password_hash = pwd.hash(new_password)

@@ -1630,6 +1630,7 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
   late final TextEditingController login;
   final password = TextEditingController();
   final Set<int> locationIds = <int>{};
+  String role = 'employee';
   bool active = true;
   bool busy = false;
   String? error;
@@ -1651,6 +1652,7 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
     if (locationIds.isEmpty && legacyLocationId is num) {
       locationIds.add(legacyLocationId.toInt());
     }
+    role = item?['role']?.toString() ?? 'employee';
     active = item?['active'] as bool? ?? true;
   }
 
@@ -1664,7 +1666,7 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
   }
 
   Future<void> save() async {
-    if (locationIds.isEmpty) {
+    if (locationIds.isEmpty && role != 'admin') {
       setState(() => error = 'Vyber aspoň jednu prevádzku');
       return;
     }
@@ -1679,6 +1681,7 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
         'login': login.text.trim(),
         'location_ids': locationIds.toList()..sort(),
         'active': active,
+        'role': role,
       };
       if (!editing) body['password'] = password.text;
       await api.request(
@@ -1718,6 +1721,13 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          DropdownButtonFormField<String>(
+            initialValue: role,
+            decoration: const InputDecoration(labelText: 'Práva'),
+            items: const [DropdownMenuItem(value: 'employee', child: Text('OPERATOR')), DropdownMenuItem(value: 'admin', child: Text('ADMIN'))],
+            onChanged: (value) => setState(() => role = value ?? 'employee'),
+          ),
+          const SizedBox(height: 12),
           TextField(controller: personalNumber, decoration: const InputDecoration(labelText: 'Osobné číslo')),
           const SizedBox(height: 12),
           TextField(controller: name, decoration: const InputDecoration(labelText: 'Meno')),
