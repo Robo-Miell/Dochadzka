@@ -35,7 +35,7 @@ async function reload(){
 }
 async function enter(){
   me=await api('/api/me');el('loginPanel').hidden=true;el('workspace').hidden=false;el('userName').textContent=me.name;
-  const admin=me.role==='admin';el('employeesLink').hidden=!admin;
+  const admin=me.role==='admin';el('employeesLink').hidden=!admin;el('userRole').textContent=admin?'ADMIN':'OPERATOR';
   el('attendanceLink').href=admin?'/admin':'/?view=attendance';el('attendanceAction').href=admin?'/admin':'/?view=attendance';el('attendanceAction').textContent=admin?'Spravovať dochádzku':'Zadať dochádzku';
   if(admin&&!['overview','attendance'].includes(new URLSearchParams(location.search).get('view'))){el('workspace').hidden=true;el('moduleChooser').hidden=false;el('chooserUser').textContent=me.name+' · ADMIN';return}
   if(new URLSearchParams(location.search).get('next')==='quality'){location.replace('/quality/');return}
@@ -70,3 +70,9 @@ el('closePassword').onclick=()=>el('passwordDialog').close();
 el('passwordForm').onsubmit=async e=>{e.preventDefault();try{if(el('newPassword').value!==el('confirmPassword').value)throw new Error('Nové heslá sa nezhodujú.');await api('/api/me/change-password',{method:'POST',body:JSON.stringify({current_password:el('currentPassword').value,new_password:el('newPassword').value})});localStorage.removeItem('dochadzka_token');location.href='/?password=changed'}catch(err){el('passwordMessage').textContent=err.message}};
 if(new URLSearchParams(location.search).get('password')==='changed')el('loginError').textContent='Heslo bolo zmenené. Prihlás sa novým heslom.';
 if(localStorage.getItem('dochadzka_token'))enter().catch(e=>{showLogin();el('loginError').textContent=e.message});else showLogin();
+
+function closeOperatorMenu(){el('operatorSidebar').classList.remove('open');el('operatorMenu').setAttribute('aria-expanded','false')}
+el('operatorMenu').onclick=()=>{const open=el('operatorSidebar').classList.toggle('open');el('operatorMenu').setAttribute('aria-expanded',String(open))};
+document.querySelectorAll('#operatorSidebar .miell-nav a').forEach(link=>link.addEventListener('click',()=>{document.querySelectorAll('#operatorSidebar .miell-nav a').forEach(a=>a.classList.toggle('active',a===link));closeOperatorMenu()}));
+document.addEventListener('keydown',event=>{if(event.key==='Escape')closeOperatorMenu()});
+document.addEventListener('click',event=>{if(!el('operatorSidebar').contains(event.target)&&!el('operatorMenu').contains(event.target))closeOperatorMenu()});
