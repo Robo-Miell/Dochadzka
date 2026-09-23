@@ -8,7 +8,7 @@ void main() {
     await tester.pumpAndSettle();
     final toggle = find.widgetWithText(CheckboxListTile, 'Odpočítať prestávku');
     await tester.scrollUntilVisible(toggle, 250,
-      scrollable: find.byWidgetPredicate((widget) => widget is Scrollable && widget.axisDirection == AxisDirection.down));
+      scrollable: find.descendant(of: find.byType(ListView), matching: find.byType(Scrollable)).first);
     expect(tester.widget<CheckboxListTile>(toggle).value, isTrue);
     await tester.tap(toggle);
     await tester.pump();
