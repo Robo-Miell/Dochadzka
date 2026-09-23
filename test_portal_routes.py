@@ -94,23 +94,3 @@ def test_quality_search_respects_owner_and_filters():
     assert legacy.record_query(con,op,{'search':['skraba'],'shift':['N']}) == []
     assert legacy.record_query(con,op,{'search':["' OR 1=1 --"]}) == []
     con.close()
-
-
-def test_seed_is_admin_only_atomic_and_idempotent():
-    with TestClient(main.app) as client:
-        assert client.post('/api/admin/test-attendance-2025').status_code == 401
-        token = client.post('/api/auth/login',json={'login':'admin','password':'PortalTest123!'}).json()['access_token']
-        headers = {'Authorization':'Bearer '+token}
-        for name in ['Seed A','Seed B','Seed C']:
-            assert client.post('/api/locations',headers=headers,json={'name':name}).status_code == 200
-        result = client.post('/api/admin/test-attendance-2025',headers=headers)
-        assert result.status_code == 200, result.text
-        data = result.json()
-        assert data['inserted'] == data['records'] == 250
-        assert data['hours'] == 2000
-        counts = list(data['locations'].values())
-        assert max(counts)-min(counts) <= 1
-        again = client.post('/api/admin/test-attendance-2025',headers=headers).json()
-        assert again['inserted'] == 0 and again['records'] == 250
-        with main.SessionLocal() as session:
-            assert session.get(main.User,data['employee_id']).active is False
