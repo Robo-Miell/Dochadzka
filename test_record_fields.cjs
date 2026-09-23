@@ -6,6 +6,10 @@ const source=fs.readFileSync('quality/static/app.js','utf8');
 const context={esc:v=>String(v).replaceAll('<','&lt;').replaceAll('>','&gt;')};
 vm.createContext(context);
 vm.runInContext(source.slice(source.indexOf('function searchText'),source.indexOf('function multiSelectMarkup')),context);
+test('duration inserts colon while typing numeric HHMM and accepts explicit colon',()=>{
+  for(const [value,expected] of [['1','1'],['12','12'],['122','12:2'],['12:23','12:23'],['1223','12:23'],['0120','01:20'],['1:20','1:20'],['','']])
+    assert.equal(context.maskWorkTime(value),expected);
+});
 test('work duration pads hours and minutes without changing invalid input',()=>{
   for(const [value,expected] of [['1:20','01:20'],['0:5','00:05'],['08:00','08:00'],['1:90','1:90'],['','']])
     assert.equal(context.normalizeWorkTime(value),expected);
