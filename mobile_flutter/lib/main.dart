@@ -1040,7 +1040,7 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
           'time_from': (type == 'Práca' || type == 'Lekár') ? formatTime(from) : null,
           'time_to': (type == 'Práca' || type == 'Lekár') ? formatTime(to) : null,
           'break_minutes': type == 'Práca' ? int.tryParse(breakCtrl.text) ?? 0 : 0,
-          'deduct_break': type == 'Práca' ? (customWorkTime || shifts.isEmpty ? true : deductBreak) : false,
+          'deduct_break': type == 'Práca' ? deductBreak : false,
           'km': type == 'Práca' && kmEnabledForLocation ? int.tryParse(kmCtrl.text) ?? 0 : 0,
           'billing_confirmed': billingConfirmed,
           'note': noteCtrl.text.trim(),
@@ -1194,14 +1194,20 @@ class _AddAttendancePageState extends State<AddAttendancePage> {
               ),
             ),
           ],
-          if (type == 'Práca' && showManualTime) ...[
+          if (type == 'Práca') ...[
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Odpočítať prestávku'),
+              value: deductBreak,
+              onChanged: (value) => setState(() => deductBreak = value ?? true),
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: breakCtrl,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'Prestávka v minútach',
-                helperText: 'Pri vlastnom čase sa prestávka odpočíta z pracovného času.',
+                helperText: 'Odpočet prestávky môžeš zapnúť alebo vypnúť.',
               ),
             ),
           ],

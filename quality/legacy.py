@@ -329,6 +329,24 @@ def enrich_record(d):
     return d
 
 
+def record_search_text(value):
+    import unicodedata
+    return ''.join(c for c in unicodedata.normalize('NFD', str(value)) if not unicodedata.combining(c)).casefold()
+
+
+def record_matches_search(record, query):
+    part = record.get('part_snapshot_obj') or {}
+    job = record.get('job_snapshot_obj') or {}
+    counts = record.get('error_counts_obj') or {}
+    fields = [record.get(key, '') for key in (
+        'record_date', 'shift', 'order_number', 'delivery_note', 'display_name',
+        'username', 'note', 'checked_items', 'ok_items', 'nok_items',
+        'reworked_ok', 'reworked_nok')]
+    fields.extend([part.get('item_number', ''), part.get('part_name', ''), job.get('brief_description', '')])
+    fields.extend(f"{e.get('name', '')} {counts.get(str(e['id']), 0)}" for e in job.get('errors', []) if counts.get(str(e['id']), 0))
+    return record_search_text(query) in record_search_text(' '.join(str(v or '') for v in fields))
+
+
 def record_query(con, user, q):
     sql = '''SELECT r.*, u.display_name,COALESCE(u.central_login,u.username) AS username,u.role AS user_role,j.order_number,j.active AS job_active
              FROM records r JOIN users u ON u.id=r.user_id JOIN jobs j ON j.id=r.job_id WHERE 1=1'''
@@ -367,7 +385,8 @@ def record_query(con, user, q):
         except: d['part_snapshot_obj']={}
         try: d['error_counts_obj']=json.loads(d.get('error_counts') or '{}')
         except: d['error_counts_obj']={}
-        out.append(enrich_record(d))
+        if not q.get('search', [''])[0].strip() or record_matches_search(d, q['search'][0].strip()):
+            out.append(enrich_record(d))
     return out
 
 
