@@ -7,7 +7,8 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: AddAttendancePage(locations: [], defaultLocationId: null)));
     await tester.pumpAndSettle();
     final toggle = find.widgetWithText(CheckboxListTile, 'Odpočítať prestávku');
-    await tester.scrollUntilVisible(toggle, 250);
+    await tester.scrollUntilVisible(toggle, 250,
+      scrollable: find.byWidgetPredicate((widget) => widget is Scrollable && widget.axisDirection == AxisDirection.down));
     expect(tester.widget<CheckboxListTile>(toggle).value, isTrue);
     await tester.tap(toggle);
     await tester.pump();
