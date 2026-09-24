@@ -33,6 +33,25 @@ def test_portal_and_attendance_routes():
     assert client.get('/api/me').status_code == 401
 
 
+def test_attendance_pdf_slovak_glyphs():
+    import io
+    from datetime import date
+    from types import SimpleNamespace
+    from pypdf import PdfReader
+    main.ensure_pdf_fonts()
+    for name in ['MiellSans', 'MiellSansBold']:
+        glyphs = main.pdfmetrics.getFont(name).face.charToGlyph
+        assert all(glyphs.get(ord(c), 0) for c in 'áäčďéíĺľňóôŕšťúýžÁÄČĎÉÍĹĽŇÓÔŔŠŤÚÝŽ')
+    row = SimpleNamespace(work_date=date(2025,1,2),user=SimpleNamespace(personal_number='TEST',name='Ľubomír Šťastný'),
+        location=SimpleNamespace(name='ZKW Topoľčany'),type='Práca',time_from='06:00',time_to='14:00',
+        break_minutes=0,deduct_break=False,km=0,billing_confirmed=False,status='approved',note='Ľľ Ĺĺ Čč Ďď Ňň Ťť')
+    data = main.build_admin_pdf([row],date(2025,1,1),date(2025,12,31),'Ľubomír Šťastný','ZKW Topoľčany')
+    text = ''.join(page.extract_text() for page in PdfReader(io.BytesIO(data)).pages)
+    assert 'ZKW Topoľčany' in text and 'Ľubomír Šťastný' in text
+    out = Path('tmp/pdfs'); out.mkdir(parents=True,exist_ok=True)
+    (out/'slovak-font-check.pdf').write_bytes(data)
+
+
 def test_roles_and_operator_cannot_edit_records():
     with TestClient(main.app) as client:
         def auth(login, password):

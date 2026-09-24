@@ -1372,11 +1372,12 @@ def export_period_text_en(date_from: Optional[date], date_to: Optional[date]) ->
 
 
 def ensure_pdf_fonts():
-    if "Vera" in pdfmetrics.getRegisteredFontNames():
+    if "MiellSans" in pdfmetrics.getRegisteredFontNames():
         return
-    fonts_dir = os.path.join(os.path.dirname(reportlab.__file__), "fonts")
-    pdfmetrics.registerFont(TTFont("Vera", os.path.join(fonts_dir, "Vera.ttf")))
-    pdfmetrics.registerFont(TTFont("VeraBd", os.path.join(fonts_dir, "VeraBd.ttf")))
+    fonts_dir = os.path.join(os.path.dirname(__file__), "quality", "fonts")
+    pdfmetrics.registerFont(TTFont("MiellSans", os.path.join(fonts_dir, "LiberationSans-Regular.ttf")))
+    pdfmetrics.registerFont(TTFont("MiellSansBold", os.path.join(fonts_dir, "LiberationSans-Bold.ttf")))
+    pdfmetrics.registerFontFamily("MiellSans", normal="MiellSans", bold="MiellSansBold", italic="MiellSans", boldItalic="MiellSansBold")
 
 
 def pdf_logo(max_height=13 * mm):
@@ -1395,7 +1396,7 @@ def pdf_footer(canvas, doc):
     canvas.saveState()
     canvas.setStrokeColor(colors.HexColor("#D9E3D8"))
     canvas.line(doc.leftMargin, 8 * mm, doc.pagesize[0] - doc.rightMargin, 8 * mm)
-    canvas.setFont("Vera", 7)
+    canvas.setFont("MiellSans", 7)
     canvas.setFillColor(colors.HexColor("#667085"))
     canvas.drawString(doc.leftMargin, 4.5 * mm, "MIELL Dochádzka")
     canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, 4.5 * mm, f"Strana {doc.page}")
@@ -1427,11 +1428,11 @@ def build_admin_pdf(
         author="MIELL Quality",
     )
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("TitleVera", parent=styles["Title"], fontName="VeraBd", fontSize=16, leading=19, textColor=colors.HexColor("#172033"), alignment=TA_LEFT)
-    small = ParagraphStyle("SmallVera", parent=styles["BodyText"], fontName="Vera", fontSize=6.4, leading=8, textColor=colors.HexColor("#172033"))
+    title_style = ParagraphStyle("TitleVera", parent=styles["Title"], fontName="MiellSansBold", fontSize=16, leading=19, textColor=colors.HexColor("#172033"), alignment=TA_LEFT)
+    small = ParagraphStyle("SmallVera", parent=styles["BodyText"], fontName="MiellSans", fontSize=6.4, leading=8, textColor=colors.HexColor("#172033"))
     small_center = ParagraphStyle("SmallCenter", parent=small, alignment=TA_CENTER)
-    meta = ParagraphStyle("MetaVera", parent=styles["BodyText"], fontName="Vera", fontSize=8, leading=10, textColor=colors.HexColor("#667085"))
-    summary = ParagraphStyle("SummaryVera", parent=styles["BodyText"], fontName="VeraBd", fontSize=9, leading=11, textColor=colors.HexColor("#172033"))
+    meta = ParagraphStyle("MetaVera", parent=styles["BodyText"], fontName="MiellSans", fontSize=8, leading=10, textColor=colors.HexColor("#667085"))
+    summary = ParagraphStyle("SummaryVera", parent=styles["BodyText"], fontName="MiellSansBold", fontSize=9, leading=11, textColor=colors.HexColor("#172033"))
 
     story = []
     logo = pdf_logo()
@@ -1472,7 +1473,7 @@ def build_admin_pdf(
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#348C2E")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "VeraBd"),
+        ("FONTNAME", (0, 0), (-1, 0), "MiellSansBold"),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D9E3D8")),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7FAF7")]),
@@ -1505,11 +1506,11 @@ def build_employee_pdf(user: User, rows, date_from: date, date_to: date):
         author="MIELL Quality",
     )
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("EmpTitle", parent=styles["Title"], fontName="VeraBd", fontSize=16, leading=19, textColor=colors.HexColor("#172033"), alignment=TA_LEFT)
-    body = ParagraphStyle("EmpBody", parent=styles["BodyText"], fontName="Vera", fontSize=8.2, leading=10.5, textColor=colors.HexColor("#172033"))
+    title_style = ParagraphStyle("EmpTitle", parent=styles["Title"], fontName="MiellSansBold", fontSize=16, leading=19, textColor=colors.HexColor("#172033"), alignment=TA_LEFT)
+    body = ParagraphStyle("EmpBody", parent=styles["BodyText"], fontName="MiellSans", fontSize=8.2, leading=10.5, textColor=colors.HexColor("#172033"))
     small = ParagraphStyle("EmpSmall", parent=body, fontSize=7.2, leading=9)
     small_center = ParagraphStyle("EmpSmallCenter", parent=small, alignment=TA_CENTER)
-    strong = ParagraphStyle("EmpStrong", parent=body, fontName="VeraBd", fontSize=9.2, leading=11)
+    strong = ParagraphStyle("EmpStrong", parent=body, fontName="MiellSansBold", fontSize=9.2, leading=11)
 
     story = []
     logo = pdf_logo(15 * mm)
@@ -1579,7 +1580,7 @@ def build_employee_pdf(user: User, rows, date_from: date, date_to: date):
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#348C2E")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "VeraBd"),
+        ("FONTNAME", (0, 0), (-1, 0), "MiellSansBold"),
         ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D9E3D8")),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7FAF7")]),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -1683,7 +1684,7 @@ def pdf_footer_en(canvas, doc):
     canvas.saveState()
     canvas.setStrokeColor(colors.HexColor("#D9E3D8"))
     canvas.line(doc.leftMargin, 8 * mm, doc.pagesize[0] - doc.rightMargin, 8 * mm)
-    canvas.setFont("Vera", 7)
+    canvas.setFont("MiellSans", 7)
     canvas.setFillColor(colors.HexColor("#667085"))
     canvas.drawString(doc.leftMargin, 4.5 * mm, "MIELL Attendance")
     canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, 4.5 * mm, f"Page {doc.page}")
@@ -1711,11 +1712,11 @@ def build_reporting_pdf_en(
         author="MIELL Quality",
     )
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("TitleVeraEn", parent=styles["Title"], fontName="VeraBd", fontSize=16, leading=19, textColor=colors.HexColor("#172033"), alignment=TA_LEFT)
-    small = ParagraphStyle("SmallVeraEn", parent=styles["BodyText"], fontName="Vera", fontSize=6.4, leading=8, textColor=colors.HexColor("#172033"))
+    title_style = ParagraphStyle("TitleVeraEn", parent=styles["Title"], fontName="MiellSansBold", fontSize=16, leading=19, textColor=colors.HexColor("#172033"), alignment=TA_LEFT)
+    small = ParagraphStyle("SmallVeraEn", parent=styles["BodyText"], fontName="MiellSans", fontSize=6.4, leading=8, textColor=colors.HexColor("#172033"))
     small_center = ParagraphStyle("SmallCenterEn", parent=small, alignment=TA_CENTER)
-    meta = ParagraphStyle("MetaVeraEn", parent=styles["BodyText"], fontName="Vera", fontSize=8, leading=10, textColor=colors.HexColor("#667085"))
-    summary = ParagraphStyle("SummaryVeraEn", parent=styles["BodyText"], fontName="VeraBd", fontSize=9, leading=11, textColor=colors.HexColor("#172033"))
+    meta = ParagraphStyle("MetaVeraEn", parent=styles["BodyText"], fontName="MiellSans", fontSize=8, leading=10, textColor=colors.HexColor("#667085"))
+    summary = ParagraphStyle("SummaryVeraEn", parent=styles["BodyText"], fontName="MiellSansBold", fontSize=9, leading=11, textColor=colors.HexColor("#172033"))
 
     story = []
     logo = pdf_logo()
@@ -1756,7 +1757,7 @@ def build_reporting_pdf_en(
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#348C2E")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "VeraBd"),
+        ("FONTNAME", (0, 0), (-1, 0), "MiellSansBold"),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D9E3D8")),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7FAF7")]),
