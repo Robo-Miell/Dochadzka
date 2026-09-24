@@ -33,6 +33,35 @@ def test_portal_and_attendance_routes():
     assert client.get('/api/me').status_code == 401
 
 
+def test_scheduled_reporting_failure_and_overlap(monkeypatch):
+    monkeypatch.setattr(main, 'REPORTING_JOB_SECRET', 'test-scheduler-secret')
+    calls = []
+    def failed(session):
+        calls.append(True)
+        return {'ok': False, 'errors': [{'error': 'Simulated delivery failure'}]}
+    monkeypatch.setattr(main, '_run_due_reporting', failed)
+    client = TestClient(main.app)
+    url = '/api/reporting/run-due'
+    headers = {'X-Reporting-Secret': 'test-scheduler-secret'}
+    assert client.post(url).status_code == 401
+    assert not calls
+    response = client.post(url, headers=headers)
+    assert response.status_code == 500 and response.json()['ok'] is False
+    assert not main._reporting_run_lock.locked()
+    with main._reporting_run_lock:
+        response = client.post(url, headers=headers)
+        assert response.status_code == 200 and response.json()['running'] is True
+    assert len(calls) == 1
+    def unexpected(session):
+        raise RuntimeError('Unexpected failure')
+    monkeypatch.setattr(main, '_run_due_reporting', unexpected)
+    client = TestClient(main.app, raise_server_exceptions=False)
+    assert client.post(url, headers=headers).status_code == 500
+    assert not main._reporting_run_lock.locked()
+    monkeypatch.setattr(main, '_run_due_reporting', lambda session: {'ok': True})
+    assert client.post(url, headers=headers).json() == {'ok': True}
+
+
 def test_attendance_pdf_slovak_glyphs():
     import io
     from datetime import date

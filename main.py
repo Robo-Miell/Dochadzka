@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+import threading
 import reportlab
 import xlwt
 import xlsxwriter
@@ -18,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, ConfigDict, Field
@@ -48,6 +49,9 @@ MS_CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET", "").strip()
 MS_SENDER_EMAIL = os.getenv("MS_SENDER_EMAIL", "").strip()
 REPORTING_JOB_SECRET = os.getenv("REPORTING_JOB_SECRET", "")
 REPORTING_TIMEZONE = os.getenv("REPORTING_TIMEZONE", "Europe/Bratislava")
+# The deployed Uvicorn service has one worker. Serialize scheduled callers,
+# including retries after a caller times out while email delivery continues.
+_reporting_run_lock = threading.Lock()
 
 engine_args = {"connect_args": {"check_same_thread": False}} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, **engine_args)
@@ -2224,6 +2228,18 @@ def run_due_reporting(
     if not x_reporting_secret or not hmac.compare_digest(x_reporting_secret, REPORTING_JOB_SECRET):
         raise HTTPException(401, "Neplatný reporting secret")
 
+    if not _reporting_run_lock.acquire(blocking=False):
+        return {"ok": True, "running": True, "sent": [], "skipped": [], "errors": []}
+    try:
+        result = _run_due_reporting(session)
+        if not result["ok"]:
+            return JSONResponse(status_code=500, content=result)
+        return result
+    finally:
+        _reporting_run_lock.release()
+
+
+def _run_due_reporting(session: Session):
     try:
         now_local = datetime.now(ZoneInfo(REPORTING_TIMEZONE))
     except Exception:
