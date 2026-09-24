@@ -15,6 +15,9 @@ import main
 
 def teardown_module():
     main.engine.dispose()
+    # Legacy SQLite handlers can leave connections pending garbage collection.
+    import gc
+    gc.collect()
     _data.cleanup()
 
 
@@ -112,6 +115,49 @@ def test_roles_and_operator_cannot_edit_records():
         assert client.patch(f'/api/users/{own}', headers=admin, json={'role':'employee'}).status_code == 409
         assert client.patch('/api/users/'+str(created.json()['id']), headers=admin, json={'role':'employee'}).status_code == 200
         assert client.get('/api/users', headers=second).status_code == 401
+
+
+def test_quality_job_access_follows_assigned_locations():
+    from quality import legacy
+    with TestClient(main.app) as client:
+        def auth(login, password):
+            response = client.post('/api/auth/login', json={'login':login,'password':password})
+            assert response.status_code == 200
+            return {'Authorization':'Bearer '+response.json()['access_token']}
+        admin = auth('admin','PortalTest123!')
+        lids = [client.post('/api/locations',headers=admin,json={'name':f'Access site {i}'}).json()['id'] for i in range(3)]
+        operator = client.post('/api/users',headers=admin,json=dict(personal_number='access-op',name='Access test',login='access-op',password='AccessTest123!',location_ids=lids[:2],role='employee'))
+        assert operator.status_code == 200, operator.text
+        op = auth('access-op','AccessTest123!')
+        jobs = []
+        for i,lid in enumerate(lids):
+            response = client.post('/quality/api/jobs',headers=admin,json=dict(order_number=f'ACCESS-{i}',brief_description='Access test',location_id=lid,norm_mode='ct',norm_ct_seconds=1,parts=[{'item_number':f'PART-{i}'}]))
+            assert response.status_code == 201, response.text
+            jobs.append(response.json()['job'])
+        def ids(headers, suffix=''):
+            return {j['id'] for j in client.get('/quality/api/jobs'+suffix,headers=headers).json()['jobs']}
+        assert ids(op)=={jobs[0]['id'],jobs[1]['id']}
+        assert ids(op,'?all=1')==ids(op)
+        assert {j['id'] for j in jobs} <= ids(admin,'?all=1')
+        def submit(job, headers=op):
+            return client.post('/quality/api/records',headers=headers,json=dict(job_id=job['id'],part_id=job['parts'][0]['id'],checked_items=1,ok_items=1,nok_items=0,reworked_ok=0,reworked_nok=0,shift='R'))
+        assert submit(jobs[0]).status_code == 201
+        assert submit(jobs[2]).status_code == 403
+        with legacy.db() as con:
+            con.execute('UPDATE jobs SET location_id=NULL WHERE id=?',(jobs[1]['id'],))
+            con.commit()
+        con.close()
+        assert ids(op)=={jobs[0]['id']}
+        assert submit(jobs[1]).status_code == 403
+        # Revoking an assignment also blocks a form that was already opened.
+        response=client.patch('/api/users/'+str(operator.json()['id']),headers=admin,json={'location_ids':[lids[2]]})
+        assert response.status_code==200,response.text
+        op=auth('access-op','AccessTest123!')
+        assert ids(op)=={jobs[2]['id']}
+        assert submit(jobs[0],op).status_code==403
+        assert client.post(f"/quality/api/jobs/{jobs[2]['id']}/archive",headers=admin,json={}).status_code==200
+        assert ids(op,'?all=1')==set()
+        assert submit(jobs[2],op).status_code==400
 
 
 def test_quality_search_respects_owner_and_filters():

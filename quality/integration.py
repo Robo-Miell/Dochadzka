@@ -350,6 +350,12 @@ def register(host):
             return {'user': sync_identity(user)}
         if endpoint == 'locations' and request.method == 'GET':
             return {'locations': host.locations(session=session, user=user)}
+        if endpoint == 'jobs' and request.method == 'GET' and user.role != 'admin':
+            allowed_locations = set(host.assigned_location_ids(user))
+            with legacy.db() as con:
+                jobs = legacy.list_jobs(con, include_inactive=False)
+            return {'jobs': [job for job in jobs
+                             if job.get('location_id') and job['location_id'] in allowed_locations]}
         if endpoint == 'employees' and request.method == 'GET':
             if user.role != 'admin':
                 raise HTTPException(403, 'Len pre administrátora')
@@ -413,7 +419,7 @@ def register(host):
             if target_id!=user.id:
                 if target.role!='employee' or not job or not job.get('location_id') or job['location_id'] not in host.assigned_location_ids(target):
                     raise HTTPException(400, 'Vybraný zamestnanec nemá priradenú prevádzku zákazky')
-            elif user.role!='admin' and job and job.get('location_id') and job['location_id'] not in host.assigned_location_ids(user):
+            elif user.role!='admin' and (not job or not job.get('location_id') or job['location_id'] not in host.assigned_location_ids(user)):
                 raise HTTPException(403, 'Prevádzka zákazky ti nie je priradená')
             payload['_record_user_id']=sync_identity(target)['id']
         path = '/api/' + endpoint + ('?' + request.url.query if request.url.query else '')
