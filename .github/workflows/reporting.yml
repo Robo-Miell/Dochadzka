@@ -3,7 +3,9 @@ name: Scheduled attendance and quality reports
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/5 * * * *'
+    # Three daily checks; avoid the busy start of the hour. DST follows Slovakia.
+    - cron: '17 8,12,16 * * *'
+      timezone: Europe/Bratislava
 
 permissions:
   contents: read
@@ -15,6 +17,7 @@ concurrency:
 jobs:
   trigger-reporting:
     runs-on: ubuntu-latest
+    timeout-minutes: 12
 
     steps:
       - name: Trigger due attendance and quality reports
@@ -26,7 +29,32 @@ jobs:
             exit 1
           fi
 
-          curl --fail-with-body --max-time 180 --retry 2 --retry-delay 15 \
+          # Wake the free service with a read-only request before sending reports.
+          curl --fail --silent --show-error --max-time 180 --retry 2 --retry-delay 15 \
+            "https://dochadzka1.onrender.com/health" > /dev/null
+
+          # Do not retry POST automatically: a lost response can follow a successful send.
+          curl --fail-with-body --silent --show-error --max-time 180 \
             -X POST \
             -H "X-Reporting-Secret: $REPORTING_JOB_SECRET" \
-            "https://dochadzka1.onrender.com/api/reporting/run-due"
+            "https://dochadzka1.onrender.com/api/reporting/run-due" \
+            --output "$RUNNER_TEMP/reporting-result.json"
+
+          python3 - "$RUNNER_TEMP/reporting-result.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as response:
+              result = json.load(response)
+          quality = result.get("quality") or {}
+          errors = result.get("errors") or []
+          quality_errors = quality.get("errors") or []
+          print("Checked at:", result.get("checked_at", "unknown"))
+          for name, section in (("Attendance", result), ("Quality", quality)):
+              print(f"{name}: sent={len(section.get('sent') or [])}, "
+                    f"skipped={len(section.get('skipped') or [])}, "
+                    f"errors={len(section.get('errors') or [])}")
+          if result.get("ok") is not True or errors or quality_errors:
+              print("::error::Reporting failed. Check the report status in the application.")
+              sys.exit(1)
+          PY
