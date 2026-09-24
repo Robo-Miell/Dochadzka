@@ -136,6 +136,9 @@ def test_quality_search_respects_owner_and_filters():
           (rid,uid,1,1,'2026-09-23','R',0,json.dumps({'errors':[{'id':1,'name':'Škrabanec'}]}),
            json.dumps({'item_number':'00123','part_name':'Diel'}),'{"1":3}','DL-000456','Poznámka',10,7,3,0,0,3600,None))
     op = {'role':'operator','id':1}
+    detail_filters = {'job_id':['1'], 'date_from':['2026-09-01'], 'date_to':['2026-09-24'], 'operator_id':['2']}
+    assert [r['id'] for r in legacy.record_query(con,op,detail_filters)] == [1]
+    assert legacy.record_query(con,op,{'job_id':['2']}) == []
     for text in ['skraba','000456','00123','POZNAMKA']:
         rows = legacy.record_query(con,op,{'search':[text]})
         assert [r['id'] for r in rows] == [1]

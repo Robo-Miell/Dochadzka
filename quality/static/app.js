@@ -192,6 +192,7 @@ function bindRecordActions(reload){bindOpenJobs();if(state.user.role!=='admin')r
 function pdfDownload(params){downloadFile('/api/export/pdf?'+params.toString())}
 
 async function renderJobDetail(id){
+  if(state.user.role!=='admin')return renderOperatorJobDetail(id);
   setTitle('Zákazka / Job detail','Sumár, záznamy a exporty');const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Bratislava',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());$('#view').innerHTML='<div class="panel"><div class="panel-body">Načítavam…</div></div>';
   async function load(){
     const oldFrom=$('#jdFrom')?.value||'',oldTo=$('#jdTo')?.value||'';const qs=new URLSearchParams();if(oldFrom)qs.set('date_from',oldFrom);if(oldTo)qs.set('date_to',oldTo);const d=await api(`/api/jobs/${id}/summary?`+qs);const j=d.job,t=d.totals;
@@ -199,6 +200,34 @@ async function renderJobDetail(id){
     $('#backJobs').onclick=()=>go('jobs');$('#jobNewRecord').onclick=()=>j.active&&go('new',id);$('#jobEdit').onclick=()=>openJob(j);$('#jobArchive').onclick=()=>archiveJob(id,!!j.active,load);$('#jobDelete').onclick=()=>deleteJob(id,()=>go('jobs'));$('#jdSendNow').onclick=()=>sendJobReportNow(id,load);$('#jdLoad').onclick=load;
     const params=()=>{const q=new URLSearchParams({job_id:id});if($('#jdFrom').value)q.set('date_from',$('#jdFrom').value);if($('#jdTo').value)q.set('date_to',$('#jdTo').value);return q};
     $('#jdPdf').onclick=()=>downloadFile('/api/export/pdf?'+params());$('#jdXlsx').onclick=()=>downloadFile('/api/export/xlsx?'+params());$('#jdXlsm').onclick=()=>downloadFile(`/api/export/daily-xlsm?job_id=${id}&date=${encodeURIComponent($('#jdDay').value)}`);bindRecordActions(load);
+  }
+  await load();
+}
+
+async function renderOperatorJobDetail(id){
+  setTitle('Zákazka / Job detail','Moje záznamy, súhrn a exporty');
+  $('#view').innerHTML='<div class="panel"><div class="panel-body">Načítavam…</div></div>';
+  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Bratislava',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  async function load(){
+    const from=$('#opFrom')?.value||'',to=$('#opTo')?.value||'',day=$('#opDay')?.value||today;
+    const params=new URLSearchParams({job_id:id});if(from)params.set('date_from',from);if(to)params.set('date_to',to);
+    try{
+      // /records enforces the authenticated operator's ownership on the server.
+      const [jobData,recordData]=await Promise.all([api(`/api/jobs/${id}`),api('/api/records?'+params)]);
+      if(state.view!=='jobdetail')return;
+      const j=jobData.job,rows=recordData.records;
+      if(!j)throw new Error('Zákazka neexistuje.');
+      const totals=rows.reduce((t,r)=>({checked:t.checked+Number(r.checked_items||0),ok:t.ok+Number(r.ok_items||0),nok:t.nok+Number(r.nok_items||0)}),{checked:0,ok:0,nok:0});
+      $('#view').innerHTML=`<div class="job-hero"><div><button class="link-btn" id="opBack">← Moje záznamy</button><h2>${esc(j.order_number)}</h2><p>${esc(j.brief_description)}</p><div class="muted">Zobrazené sú iba tvoje záznamy. Úpravy vykonáva administrátor.</div></div></div><div class="panel"><div class="panel-body"><div class="toolbar"><label>Od / From<input id="opFrom" type="date" value="${esc(from)}"></label><label>Do / To<input id="opTo" type="date" value="${esc(to)}"></label><button id="opLoad" class="btn">Načítať</button><button id="opPdf" class="btn primary">PDF report</button><label>Dátum XLSM<input id="opDay" type="date" value="${esc(day)}"></label><button id="opXlsm" class="btn">XLSM podľa šablóny</button></div></div></div><div class="kpis">${kpi('Checked',totals.checked)}${kpi('OK',totals.ok)}${kpi('NOK',totals.nok)}${kpi('NOK rate',(totals.checked?(totals.nok/totals.checked*100).toFixed(2):'0')+'%')}${kpi('Records',rows.length)}</div><div class="panel"><div class="table-wrap"><table><thead>${recordHeader(false,false)}</thead><tbody>${tableRows(rows,false,false)}</tbody></table></div></div>`;
+      $('#opBack').onclick=()=>go('mine');$('#opLoad').onclick=load;
+      $('#opPdf').onclick=()=>{const q=new URLSearchParams({job_id:id});if($('#opFrom').value)q.set('date_from',$('#opFrom').value);if($('#opTo').value)q.set('date_to',$('#opTo').value);downloadFile('/api/export/pdf?'+q)};
+      $('#opXlsm').onclick=()=>downloadFile(`/api/export/daily-xlsm?job_id=${id}&date=${encodeURIComponent($('#opDay').value)}`);
+      bindOpenJobs();
+    }catch(e){
+      if(state.view!=='jobdetail')return;
+      $('#view').innerHTML=`<div class="panel"><div class="panel-body"><p role="alert">Detail sa nepodarilo načítať: ${esc(e.message)}</p><button id="opRetry" class="btn primary">Skúsiť znova</button><button id="opBack" class="btn">Moje záznamy</button></div></div>`;
+      $('#opRetry').onclick=load;$('#opBack').onclick=()=>go('mine');
+    }
   }
   await load();
 }
