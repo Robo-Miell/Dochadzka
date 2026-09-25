@@ -31,6 +31,7 @@ function operatorDetailHarness(api){
     bindOpenJobs:()=>{},go:()=>{},downloadFile:url=>downloads.push(url)};
   vm.createContext(ctx);
   vm.runInContext(source.slice(source.indexOf('async function renderJobDetail'),source.indexOf('function recordHeader')),ctx);
+  ctx.addAnalyticsButton=()=>{};
   return {ctx,elements,downloads};
 }
 
@@ -63,4 +64,19 @@ test('operator detail replaces loading with error and can retry',async()=>{
   assert.doesNotMatch(elements.get('#view').innerHTML,/Načítavam/);
   fail=false;await elements.get('#opRetry').onclick();
   assert.match(elements.get('#view').innerHTML,/Records=0/);
+});
+
+test('analytics shows total and daily rows and uses mobile-compatible export routes',async()=>{
+  const r={checked:10,ok:9,nok:1,rate:10,errors:{'<chyba>':1}};
+  const {ctx,elements,downloads}=operatorDetailHarness(async url=>{
+    assert.equal(url,'/api/jobs/7/analytics?part_id=2');
+    return {order:'JOB',description:'Test',location:'Location',scope:'Iba moje záznamy',parts:[{id:2,item_number:'P2'}],part_id:2,first:'2026-01-01',start:'2026-08-27',as_of:'2026-09-25',errors:['<chyba>'],total:r,recent:r,days:[{...r,date:'2026-09-25'}],charts:{}};
+  });
+  await ctx.renderAnalytics(7,'2');
+  assert.match(elements.get('#view').innerHTML,/TOTAL/);
+  assert.match(elements.get('#view').innerHTML,/25.09.2026/);
+  assert.match(elements.get('#view').innerHTML,/&lt;chyba&gt;/);
+  elements.get('#analyticsPdf').onclick();elements.get('#analyticsXlsx').onclick();
+  assert.equal(downloads[0],'/api/export/pdf?job_id=7&analytics=1&part_id=2');
+  assert.equal(downloads[1],'/api/export/xlsx?job_id=7&analytics=1&part_id=2');
 });

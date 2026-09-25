@@ -142,6 +142,23 @@ def test_quality_job_access_follows_assigned_locations():
         def submit(job, headers=op):
             return client.post('/quality/api/records',headers=headers,json=dict(job_id=job['id'],part_id=job['parts'][0]['id'],checked_items=1,ok_items=1,nok_items=0,reworked_ok=0,reworked_nok=0,shift='R'))
         assert submit(jobs[0]).status_code == 201
+        assert submit(jobs[0],admin).status_code == 201
+        analytics_url=f"/quality/api/jobs/{jobs[0]['id']}/analytics"
+        mine=client.get(analytics_url,headers=op)
+        assert mine.status_code==200,mine.text
+        assert mine.json()['total']['checked']==1
+        assert client.get(analytics_url,headers=admin).json()['total']['checked']==2
+        assert client.get(analytics_url).status_code==401
+        assert client.get(f"/quality/api/jobs/{jobs[2]['id']}/analytics",headers=op).status_code==403
+        assert client.get(analytics_url+'?part_id=999999',headers=op).status_code==400
+        from pypdf import PdfReader
+        import io,zipfile
+        pdf=client.get(f"/quality/api/export/pdf?analytics=1&job_id={jobs[0]['id']}",headers=op)
+        assert pdf.status_code==200,pdf.text if pdf.status_code!=200 else ''
+        assert 'Iba moje záznamy' in ''.join(p.extract_text() for p in PdfReader(io.BytesIO(pdf.content)).pages)
+        xlsx=client.get(f"/quality/api/export/xlsx?analytics=1&job_id={jobs[0]['id']}",headers=op)
+        assert xlsx.status_code==200
+        assert zipfile.is_zipfile(io.BytesIO(xlsx.content))
         assert submit(jobs[2]).status_code == 403
         with legacy.db() as con:
             con.execute('UPDATE jobs SET location_id=NULL WHERE id=?',(jobs[1]['id'],))

@@ -203,9 +203,36 @@ async function renderJobDetail(id){
     $('#view').innerHTML=`<div class="job-hero"><div><button class="link-btn" id="backJobs">← Zákazky</button><div class="job-title-line"><h2>${esc(j.order_number)}</h2><span class="badge ${j.active?'green':'gray'}">${j.active?'Active':'Archived'}</span></div><p>${esc(j.brief_description)}</p><div class="chips"><span class="chip">Norm: ${esc(normLabel(j))}</span>${j.parts.map(p=>`<span class="chip">${esc(p.item_number)} — ${esc(p.part_name||'')}${j.norm_mode==='time'&&p.norm_per_hour?` · ${fmtNum(p.norm_per_hour,2)} ks/h`:''}</span>`).join('')}</div></div><div class="job-hero-actions"><button id="jobNewRecord" class="btn primary" ${j.active?'':'disabled'}>＋ Nový záznam</button><button id="jobEdit" class="btn">Edit job</button><button id="jobArchive" class="btn">${j.active?'Archive':'Restore'}</button><button id="jobDelete" class="btn danger">Delete</button></div></div><div class="panel"><div class="panel-head"><h3>Automatický reporting</h3></div><div class="panel-body"><div class="reporting-detail"><div>${j.reporting_enabled?`<span class="badge green">Zapnuté · ${esc(j.reporting_time||'08:00')}</span>`:'<span class="badge gray">Vypnuté</span>'}<div class="smalltext">${esc(j.reporting_recipients||'Bez príjemcov')}</div><div class="smalltext">${jobReportStatusText(j)}</div></div><button id="jdSendNow" class="btn">Odoslať report teraz</button></div></div></div><div class="panel"><div class="panel-body"><div class="toolbar"><label>Od / From<input id="jdFrom" type="date" value="${esc(oldFrom)}"></label><label>Do / To<input id="jdTo" type="date" value="${esc(oldTo)}"></label><button id="jdLoad" class="btn">Načítať</button><button id="jdPdf" class="btn primary">PDF report</button><button id="jdXlsx" class="btn">XLS report</button><label>Daily XLSM date<input id="jdDay" type="date" value="${today}"></label><button id="jdXlsm" class="btn">XLSM podľa šablóny</button></div></div></div><div class="kpis">${kpi('Checked',t.checked_items)}${kpi('OK',t.ok_items)}${kpi('NOK',t.nok_items)}${kpi('NOK rate',t.nok_rate+'%')}${kpi('Records',t.record_count)}</div><div class="panel"><div class="panel-head"><h3>Druhy chýb / Error types</h3></div><div class="panel-body chips">${j.errors.length?j.errors.map(e=>`<span class="chip">${esc(e.name)}</span>`).join(''):'<span class="muted">None</span>'}</div></div><div class="panel"><div class="table-wrap"><table><thead>${recordHeader(true,true)}</thead><tbody>${tableRows(d.records,true,true)}</tbody></table></div></div>`;
     $('#backJobs').onclick=()=>go('jobs');$('#jobNewRecord').onclick=()=>j.active&&go('new',id);$('#jobEdit').onclick=()=>openJob(j);$('#jobArchive').onclick=()=>archiveJob(id,!!j.active,load);$('#jobDelete').onclick=()=>deleteJob(id,()=>go('jobs'));$('#jdSendNow').onclick=()=>sendJobReportNow(id,load);$('#jdLoad').onclick=load;
     const params=()=>{const q=new URLSearchParams({job_id:id});if($('#jdFrom').value)q.set('date_from',$('#jdFrom').value);if($('#jdTo').value)q.set('date_to',$('#jdTo').value);return q};
-    $('#jdPdf').onclick=()=>downloadFile('/api/export/pdf?'+params());$('#jdXlsx').onclick=()=>downloadFile('/api/export/xlsx?'+params());$('#jdXlsm').onclick=()=>downloadFile(`/api/export/daily-xlsm?job_id=${id}&date=${encodeURIComponent($('#jdDay').value)}`);bindRecordActions(load);
+    $('#jdPdf').onclick=()=>downloadFile('/api/export/pdf?'+params());$('#jdXlsx').onclick=()=>downloadFile('/api/export/xlsx?'+params());$('#jdXlsm').onclick=()=>downloadFile(`/api/export/daily-xlsm?job_id=${id}&date=${encodeURIComponent($('#jdDay').value)}`);bindRecordActions(load);addAnalyticsButton(id);
   }
   await load();
+  addAnalyticsButton(id);
+}
+
+function addAnalyticsButton(id){
+  if(state.view!=='jobdetail'||$('#openAnalytics'))return;
+  const button=document.createElement('button');button.id='openAnalytics';button.className='btn primary';button.textContent='Analytický report · TOTAL / 30 dní';
+  button.onclick=()=>renderAnalytics(id);$('#view').prepend(button);
+}
+
+async function renderAnalytics(id,partId=''){
+  state.view='analytics';setTitle('Analytický report','TOTAL, posledných 30 dní, Pareto a vývoj');
+  $('#view').innerHTML='<div class="panel"><div class="panel-body">Načítavam analytický report…</div></div>';
+  try{
+    const d=await api(`/api/jobs/${id}/analytics?`+new URLSearchParams(partId?{part_id:partId}:{}));
+    if(state.view!=='analytics')return;
+    const number=v=>Number(v).toLocaleString('sk-SK'),date=v=>v?v.split('-').reverse().join('.'):'—';
+    const row=(label,r,cls='')=>`<tr class="${cls}"><td>${esc(label)}</td><td>${number(r.checked)}</td><td>${number(r.ok)}</td><td>${number(r.nok)}</td><td>${r.rate==null?'—':Number(r.rate).toLocaleString('sk-SK',{minimumFractionDigits:2,maximumFractionDigits:2})+' %'}</td>${d.errors.map(e=>`<td>${number(r.errors[e]||0)}</td>`).join('')}</tr>`;
+    const plot=(key,title)=>`<section class="panel"><div class="panel-head"><h3>${title}</h3></div><div class="panel-body analytics-chart" role="img" aria-label="${title}">${d.charts[key]}</div></section>`;
+    $('#view').innerHTML=`<button id="analyticsBack" class="btn">← Detail zákazky</button><div class="panel"><div class="panel-body"><h2>${esc(d.order)}</h2><p>${esc(d.description)}</p><p>${esc(d.location)} · ${esc(d.scope)}</p><div class="toolbar"><label>Diel<select id="analyticsPart"><option value="">Všetky diely</option>${d.parts.map(p=>`<option value="${p.id}" ${p.id===d.part_id?'selected':''}>${esc(p.item_number)}</option>`).join('')}</select></label><button id="analyticsPdf" class="btn primary">PDF s grafmi</button><button id="analyticsXlsx" class="btn">Excel s grafmi</button></div><p class="muted">TOTAL od ${date(d.first)} · Denné riadky ${date(d.start)} – ${date(d.as_of)} · Bez archivovaných záznamov</p></div></div><div class="panel"><div class="panel-head"><h3>Výsledky kontroly</h3></div><div class="table-wrap"><table class="analytics-table"><thead><tr><th>Dátum</th><th>Checked</th><th>OK</th><th>NOK</th><th>NOK rate</th>${d.errors.map(e=>`<th>${esc(e)}</th>`).join('')}</tr></thead><tbody>${row('TOTAL',d.total,'analytics-total')}${d.days.map(r=>row(date(r.date),r)).join('')}${row('Súčet 30 dní',d.recent,'analytics-total')}</tbody></table></div></div><p class="muted">Pareto: stĺpce = počet chýb, krivka = kumulovaný podiel, prerušovaná čiara = 80 %. Pri viac než 8 chybách sa menšie zlúčia do „Ostatné chyby“.</p>${plot('pareto_total','Pareto TOTAL')}${plot('pareto_recent','Pareto za posledných 30 dní')}${plot('volume','Denný Checked – posledných 30 dní')}${plot('rate','Denný NOK % – posledných 30 dní')}${plot('cumulative','Kumulovaný Checked – po mesiacoch')}`;
+    $('#analyticsBack').onclick=()=>go('jobdetail',id);$('#analyticsPart').onchange=e=>renderAnalytics(id,e.target.value);
+    const params=new URLSearchParams({job_id:id,analytics:'1'});if(partId)params.set('part_id',partId);
+    $('#analyticsPdf').onclick=()=>downloadFile('/api/export/pdf?'+params);$('#analyticsXlsx').onclick=()=>downloadFile('/api/export/xlsx?'+params);
+  }catch(e){
+    if(state.view!=='analytics')return;
+    $('#view').innerHTML=`<div class="panel"><div class="panel-body"><p role="alert">${esc(e.message)}</p><button class="btn" id="analyticsRetry">Skúsiť znova</button><button class="btn" id="analyticsBack">Späť</button></div></div>`;
+    $('#analyticsRetry').onclick=()=>renderAnalytics(id,partId);$('#analyticsBack').onclick=()=>go('jobdetail',id);
+  }
 }
 
 async function renderOperatorJobDetail(id){
@@ -227,6 +254,7 @@ async function renderOperatorJobDetail(id){
       $('#opPdf').onclick=()=>{const q=new URLSearchParams({job_id:id});if($('#opFrom').value)q.set('date_from',$('#opFrom').value);if($('#opTo').value)q.set('date_to',$('#opTo').value);downloadFile('/api/export/pdf?'+q)};
       $('#opXlsm').onclick=()=>downloadFile(`/api/export/daily-xlsm?job_id=${id}&date=${encodeURIComponent($('#opDay').value)}`);
       bindOpenJobs();
+      addAnalyticsButton(id);
     }catch(e){
       if(state.view!=='jobdetail')return;
       $('#view').innerHTML=`<div class="panel"><div class="panel-body"><p role="alert">Detail sa nepodarilo načítať: ${esc(e.message)}</p><button id="opRetry" class="btn primary">Skúsiť znova</button><button id="opBack" class="btn">Moje záznamy</button></div></div>`;

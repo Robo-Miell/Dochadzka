@@ -346,6 +346,42 @@ def register(host):
 
     @app.api_route('/quality/api/{endpoint:path}', methods=['GET', 'POST', 'PUT', 'DELETE'])
     async def quality_api(endpoint: str, request: Request, user=Depends(host.get_current_user), session=Depends(host.db)):
+        analytics_match = re.fullmatch(r'jobs/(\d+)/analytics', endpoint)
+        analytics_export = endpoint in {'export/pdf', 'export/xlsx'} and request.query_params.get('analytics') == '1'
+        if request.method == 'GET' and (analytics_match or analytics_export):
+            from . import analytics
+            try:
+                jid = int(analytics_match.group(1) if analytics_match else request.query_params.get('job_id', '0'))
+                part_id = int(request.query_params['part_id']) if request.query_params.get('part_id') else None
+            except ValueError:
+                raise HTTPException(400, 'Neplatná zákazka alebo diel')
+            identity = sync_identity(user)
+            today = datetime.now(ZoneInfo(host.REPORTING_TIMEZONE)).date()
+            def prepare():
+                con = legacy.db()
+                try:
+                    job = legacy.get_job(con, jid, True)
+                    if not job: raise HTTPException(404, 'Zákazka neexistuje')
+                    records = legacy.record_query(con, identity, {'job_id':[str(jid)], 'date_to':[today.isoformat()], 'record_status':['active']})
+                finally:
+                    con.close()
+                return job, records
+            job, records = await run_in_threadpool(prepare)
+            if user.role != 'admin' and job.get('location_id') not in host.assigned_location_ids(user) and not records:
+                raise HTTPException(403, 'K zákazke nemáš prístup')
+            location = session.get(host.Location, job['location_id']) if job.get('location_id') else None
+            scope = 'Celá zákazka / administrátor' if user.role == 'admin' else 'Iba moje záznamy / '+user.name
+            try:
+                data = await run_in_threadpool(analytics.build, job, records, today, scope, location.name if location else '', part_id)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc))
+            if analytics_export:
+                pdf = endpoint == 'export/pdf'
+                content = await run_in_threadpool(analytics.export_pdf if pdf else analytics.export_xlsx, data)
+                ext = 'pdf' if pdf else 'xlsx'
+                return Response(content, media_type='application/pdf' if pdf else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition':f'attachment; filename="MIELL_Analytics_{jid}_{today}.{ext}"'})
+            data['charts'] = await run_in_threadpool(analytics.svg_charts, data)
+            return data
         if endpoint == 'me' and request.method == 'GET':
             return {'user': sync_identity(user)}
         if endpoint == 'locations' and request.method == 'GET':
