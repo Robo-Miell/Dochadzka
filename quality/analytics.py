@@ -13,6 +13,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 
 
@@ -91,6 +92,7 @@ def font():
 
 
 GREEN, BLUE, RED, GRID = map(colors.HexColor, ['#39992D', '#376C98', '#BA5237', '#DAE5DC'])
+LOGO = Path(__file__).parent / 'static' / 'logo.png'
 
 
 def chart(data, kind, width=740, height=205):
@@ -195,6 +197,7 @@ def export_pdf(data):
     for key,label in [('volume','Denný počet Checked - 30 dní'),('rate','Denný NOK rate - 30 dní'),('cumulative','Kumulovaný Checked - konce mesiacov, aktuálny mesiac k dátumu reportu')]:
         story.extend([p(label),chart(data,key,height=135)])
     def footer(canvas,doc):
+        canvas.drawImage(str(LOGO), 680, 528, width=110, height=39, preserveAspectRatio=True, mask='auto')
         canvas.setFont(f,8);canvas.drawString(25,15,'MIELL Quality | Bez archivovaných záznamov');canvas.drawRightString(815,15,str(doc.page))
     SimpleDocTemplate(out,pagesize=landscape(A4),leftMargin=25,rightMargin=25,topMargin=22,bottomMargin=26).build(story,onFirstPage=footer,onLaterPages=footer)
     return out.getvalue()
@@ -204,6 +207,9 @@ def export_xlsx(data):
     out=io.BytesIO()
     with xlsxwriter.Workbook(out,{'in_memory':True,'strings_to_formulas':False,'strings_to_urls':False}) as book:
         sheet=book.add_worksheet('Výsledky');charts=book.add_worksheet('Grafy');raw=book.add_worksheet('Dáta grafov')
+        logo_width, logo_height = ImageReader(str(LOGO)).getSize()
+        for target in [sheet, charts]:
+            target.insert_image('F1',str(LOGO),{'x_scale':160/logo_width,'y_scale':160/logo_width,'description':'MIELL Quality'})
         head=book.add_format({'bold':True,'bg_color':'#E5F2E0','text_wrap':True});percent=book.add_format({'num_format':'0.00%'});totalpct=book.add_format({'bold':True,'bg_color':'#E5F2E0','num_format':'0.00%'})
         for i,text in enumerate([data['order']+' - '+data['location'],data['part_label'],data['scope'],'TOTAL od '+(data['first'] or 'bez záznamov')+'; 30 dní '+data['start']+' - '+data['as_of']]):sheet.write(i,0,text)
         sheet.write_row(5,0,['Dátum','Checked','OK','NOK','NOK rate']+data['errors'],head)
