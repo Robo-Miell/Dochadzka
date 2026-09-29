@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import threading
+import uuid
 import reportlab
 import xlwt
 import xlsxwriter
@@ -122,6 +123,11 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="employee")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     token_version: Mapped[int] = mapped_column(Integer, default=0)
+    email: Mapped[str] = mapped_column(String(254), default='')
+    presence_location_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    presence_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    presence_key: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    presence_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     # Legacy/default location kept for backwards compatibility and as the initial selection in the app.
     location_id: Mapped[Optional[int]] = mapped_column(ForeignKey("locations.id"), nullable=True)
     location: Mapped[Optional[Location]] = relationship(foreign_keys=[location_id])
@@ -234,6 +240,7 @@ class ShiftUpdate(BaseModel):
 
 
 class UserIn(BaseModel):
+    email: str = ''
     role: Literal['admin', 'employee'] = 'employee'
     personal_number: str
     name: str
@@ -246,6 +253,7 @@ class UserIn(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    email: Optional[str] = None
     role: Optional[Literal['admin', 'employee']] = None
     personal_number: Optional[str] = None
     name: Optional[str] = None
@@ -583,6 +591,86 @@ def serialize_shift(x: Shift):
     }
 
 
+def validate_employee_email(value):
+    value = str(value or '').strip()
+    if value and (len(value)>254 or not EMAIL_RE.fullmatch(value)):
+        raise HTTPException(400, 'Zadaj platnú e-mailovú adresu')
+    return value
+
+
+class PresenceIn(BaseModel):
+    location_id: int
+
+
+class PresenceOut(BaseModel):
+    presence_key: str
+
+
+def presence_state(user, session):
+    loc=session.get(Location,user.presence_location_id) if user.presence_location_id else None
+    return {'present':bool(user.presence_started_at), 'presence_key':user.presence_key,
+            'location_id':user.presence_location_id, 'location_name':loc.name if loc else '',
+            'started_at':user.presence_started_at.isoformat()+'Z' if user.presence_started_at else None,
+            'overdue':bool(user.presence_started_at and datetime.utcnow()-user.presence_started_at>timedelta(hours=12)),
+            'email_configured':bool(user.email)}
+
+
+@app.get('/api/presence/me')
+def my_presence(session: Session=Depends(db),user: User=Depends(get_current_user)):
+    return presence_state(user,session)
+
+
+@app.get('/presence.js')
+def presence_script():
+    return FileResponse(os.path.join(os.path.dirname(__file__),'presence.js'))
+
+
+@app.post('/api/presence/check-in')
+def presence_check_in(data:PresenceIn,session:Session=Depends(db),user:User=Depends(get_current_user)):
+    obj=session.scalar(select(User).where(User.id==user.id).with_for_update().execution_options(populate_existing=True))
+    if obj.presence_started_at:
+        if obj.presence_location_id!=data.location_id:raise HTTPException(409,'Najprv ukonči prítomnosť na pôvodnej prevádzke')
+        return presence_state(obj,session)
+    if data.location_id not in assigned_location_ids(obj):raise HTTPException(403,'Prevádzka ti nie je priradená')
+    if session.get(Location,data.location_id) is None:raise HTTPException(404,'Prevádzka neexistuje')
+    obj.presence_location_id=data.location_id;obj.presence_started_at=datetime.utcnow();obj.presence_key=str(uuid.uuid4());obj.presence_notified_at=None
+    session.commit()
+    return presence_state(obj,session)
+
+
+@app.post('/api/presence/check-out')
+def presence_check_out(data:PresenceOut,session:Session=Depends(db),user:User=Depends(get_current_user)):
+    obj=session.scalar(select(User).where(User.id==user.id).with_for_update().execution_options(populate_existing=True))
+    if obj.presence_started_at and obj.presence_key!=data.presence_key:raise HTTPException(409,'Prítomnosť sa zmenila. Obnov obrazovku.')
+    obj.presence_started_at=None;obj.presence_location_id=None;obj.presence_key=None;obj.presence_notified_at=None
+    session.commit()
+    return presence_state(obj,session)
+
+
+@app.get('/api/presence/overview')
+def presence_overview(session:Session=Depends(db),_:User=Depends(admin_only)):
+    locations=session.scalars(select(Location).order_by(Location.name)).all()
+    present=session.scalars(select(User).where(User.presence_started_at.is_not(None)).order_by(User.name)).all()
+    return {'locations':[{'id':loc.id,'name':loc.name,'people':[{'id':u.id,'name':u.name,'personal_number':u.personal_number,**presence_state(u,session)} for u in present if u.presence_location_id==loc.id]} for loc in locations], 'checked_at':datetime.utcnow().isoformat()+'Z'}
+
+
+def send_presence_reminders(session, now=None):
+    now=now or datetime.utcnow();sent=[];errors=[]
+    ids=session.scalars(select(User.id).where(User.presence_started_at<now-timedelta(hours=12),User.presence_notified_at.is_(None),User.email!='')).all()
+    for uid in ids:
+        try:
+            u=session.scalar(select(User).where(User.id==uid).with_for_update(skip_locked=True).execution_options(populate_existing=True))
+            if not u or not u.presence_started_at or u.presence_notified_at or not u.email or u.presence_started_at>=now-timedelta(hours=12):
+                session.rollback();continue
+            state=presence_state(u,session)
+            started=u.presence_started_at.replace(tzinfo=ZoneInfo('UTC')).astimezone(ZoneInfo(REPORTING_TIMEZONE)).strftime('%d.%m.%Y %H:%M')
+            microsoft_graph_send_email('MIELL - pripomienka odchodu z práce',f'Ahoj {u.name},\n\nna prevádzke {state["location_name"]} evidujeme tvoj príchod od {started}. Uplynulo viac ako 12 hodín. Ak si už ukončil prácu, otvor Dochádzku a stlač Odchod z práce.\n\nMIELL Quality',[u.email],[])
+            u.presence_notified_at=now;session.commit();sent.append(uid)
+        except Exception as exc:
+            session.rollback();errors.append({'module':'presence','user_id':uid,'error':str(exc)})
+    return {'sent':sent,'errors':errors}
+
+
 def serialize_user(u: User):
     assigned = sorted((u.locations or []), key=lambda x: x.name.lower())
     if not assigned and u.location is not None:
@@ -592,6 +680,7 @@ def serialize_user(u: User):
         "personal_number": u.personal_number,
         "name": u.name,
         "login": u.login,
+        "email": u.email or '',
         "role": u.role,
         "active": u.active,
         "location_id": u.location_id,
@@ -629,6 +718,11 @@ def ensure_schema_columns():
     inspector = inspect(engine)
     migrations = {
         "users": [
+            ("email", "VARCHAR(254) NOT NULL DEFAULT ''"),
+            ("presence_location_id", "INTEGER NULL"),
+            ("presence_started_at", "TIMESTAMP NULL"),
+            ("presence_key", "VARCHAR(36) NULL"),
+            ("presence_notified_at", "TIMESTAMP NULL"),
             ("token_version", "INTEGER NOT NULL DEFAULT 0"),
         ],
         "locations": [
@@ -854,6 +948,8 @@ def delete_location(
         raise HTTPException(404, "Prevádzka neexistuje")
     if session.scalar(select(Shift.id).where(Shift.location_id == location_id).limit(1)):
         raise HTTPException(409, "Prevádzka má prednastavené zmeny. Najprv ich odstráň alebo presuň.")
+    if session.scalar(select(User.id).where(User.presence_location_id==location_id,User.presence_started_at.is_not(None)).limit(1)):
+        raise HTTPException(409, 'Na prevádzke sú prihlásení pracovníci. Najprv musia ukončiť prítomnosť.')
     if session.scalar(select(User.id).where(User.location_id == location_id).limit(1)):
         raise HTTPException(409, "Prevádzku používa zamestnanec. Najprv zmeň jeho prevádzky.")
     if session.execute(select(user_locations.c.user_id).where(user_locations.c.location_id == location_id).limit(1)).first():
@@ -1008,6 +1104,7 @@ def create_user(data: UserIn, session: Session = Depends(db), _: User = Depends(
     locs = validate_user_locations(session, requested_ids) if requested_ids or data.role != 'admin' else []
     new_password = validate_new_password(data.password)
     obj = User(
+        email=validate_employee_email(data.email),
         personal_number=personal_number,
         name=name,
         login=login_value,
@@ -1035,6 +1132,8 @@ def update_user(
         raise HTTPException(404, "Zamestnanec neexistuje")
 
     fields = data.model_fields_set
+    if 'email' in fields:
+        obj.email = validate_employee_email(data.email)
     if obj.role == 'admin' and (data.role == 'employee' or data.active is False):
         other_admin = session.scalar(select(User.id).where(User.role == 'admin', User.active == True, User.id != obj.id).limit(1))
         if obj.id == _.id or not other_admin:
@@ -2240,6 +2339,7 @@ def run_due_reporting(
 
 
 def _run_due_reporting(session: Session):
+    presence_result = send_presence_reminders(session)
     try:
         now_local = datetime.now(ZoneInfo(REPORTING_TIMEZONE))
     except Exception:
@@ -2247,7 +2347,7 @@ def _run_due_reporting(session: Session):
 
     sent = []
     skipped = []
-    errors = []
+    errors = list(presence_result['errors'])
     locations = session.scalars(
         select(Location).where(Location.reporting_enabled == True).order_by(Location.id)
     ).all()
@@ -2293,6 +2393,7 @@ def _run_due_reporting(session: Session):
         "sent": sent,
         "skipped": skipped,
         "quality": quality_result,
+        "presence": presence_result,
         "errors": errors,
     }
 

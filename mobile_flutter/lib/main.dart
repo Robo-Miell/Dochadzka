@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'quality_page.dart';
+import 'presence_panel.dart';
 
 const apiBase = String.fromEnvironment(
   'API_URL',
@@ -623,6 +624,7 @@ class _EmployeeHomeState extends State<EmployeeHome> {
               'Osobné číslo: ${widget.user['personal_number']}',
             ),
             const SizedBox(height: 12),
+            PresencePanel(request:(path,method,body)=>api.request(path,method:method,body:body)),
             MonthSelector(
               month: selectedMonth,
               onPrevious: () => changeMonth(-1),
@@ -1425,6 +1427,7 @@ class _AdminHomeState extends State<AdminHome> {
       appBar: AppBar(
         title: BrandAppTitle('Admin – ${titles[index]}'),
         actions: [
+          IconButton(tooltip:'Aktuálne v práci',icon:const Icon(Icons.badge_outlined),onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>Scaffold(appBar:AppBar(title:const Text('Aktuálne v práci')),body:SingleChildScrollView(child:PresencePanel(admin:true,request:(path,method,body)=>api.request(path,method:method,body:body))))))),
           IconButton(onPressed: refresh, icon: const Icon(Icons.refresh)),
           IconButton(onPressed: widget.onLogout, icon: const Icon(Icons.logout)),
         ],
@@ -1634,6 +1637,7 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
   late final TextEditingController personalNumber;
   late final TextEditingController name;
   late final TextEditingController login;
+  late final TextEditingController email;
   final password = TextEditingController();
   final Set<int> locationIds = <int>{};
   String role = 'employee';
@@ -1648,6 +1652,7 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
     super.initState();
     final item = widget.employee;
     personalNumber = TextEditingController(text: item?['personal_number']?.toString() ?? '');
+    email = TextEditingController(text: item?['email']?.toString() ?? '');
     name = TextEditingController(text: item?['name']?.toString() ?? '');
     login = TextEditingController(text: item?['login']?.toString() ?? '');
     final rawLocationIds = item?['location_ids'];
@@ -1666,6 +1671,7 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
   void dispose() {
     personalNumber.dispose();
     name.dispose();
+    email.dispose();
     login.dispose();
     password.dispose();
     super.dispose();
@@ -1684,6 +1690,7 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
       final body = <String, dynamic>{
         'personal_number': personalNumber.text.trim(),
         'name': name.text.trim(),
+        'email': email.text.trim(),
         'login': login.text.trim(),
         'location_ids': locationIds.toList()..sort(),
         'active': active,
@@ -1737,6 +1744,8 @@ class _AdminEmployeePageState extends State<AdminEmployeePage> {
           TextField(controller: personalNumber, decoration: const InputDecoration(labelText: 'Osobné číslo')),
           const SizedBox(height: 12),
           TextField(controller: name, decoration: const InputDecoration(labelText: 'Meno')),
+          const SizedBox(height: 12),
+          TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'E-mail pre pripomienky')),
           const SizedBox(height: 12),
           TextField(controller: login, decoration: const InputDecoration(labelText: 'Login')),
           const SizedBox(height: 12),

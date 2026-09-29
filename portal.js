@@ -31,6 +31,7 @@ function locationChanged(){
   el('workShift').innerHTML='<option value="">Vlastný čas</option>'+shifts.filter(s=>s.location_id===id).map(s=>`<option value="${s.id}">${esc(s.name)} · ${esc(s.time_from)}–${esc(s.time_to)}</option>`).join('');
 }
 async function reload(){
+  window.miellPresenceRefresh?.();
   try{notify('');await loadSummary();if(me.role!=='admin')await loadAttendance()}catch(e){notify(e.message,true)}
 }
 async function enter(){

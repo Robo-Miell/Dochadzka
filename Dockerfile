@@ -6,7 +6,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py runtime_settings.py unified_routes.py ./
-COPY admin.html portal.html portal.js portal.css shared.js brand.png ./
+COPY presence.js admin.html portal.html portal.js portal.css shared.js brand.png ./
 COPY quality ./quality
 
 ENV MIELL_DATA_DIR=/data

@@ -177,6 +177,50 @@ def test_quality_job_access_follows_assigned_locations():
         assert submit(jobs[2],op).status_code==400
 
 
+def test_presence_permissions_and_reminders(monkeypatch):
+    from datetime import datetime,timedelta
+    sent=[]
+    monkeypatch.setattr(main,'microsoft_graph_send_email',lambda *args:sent.append(args))
+    with TestClient(main.app) as client:
+        def auth(login,password):
+            return {'Authorization':'Bearer '+client.post('/api/auth/login',json={'login':login,'password':password}).json()['access_token']}
+        admin=auth('admin','PortalTest123!')
+        lid=client.post('/api/locations',headers=admin,json={'name':'Presence site'}).json()['id']
+        u=client.post('/api/users',headers=admin,json={'name':'Presence OP','personal_number':'presence','login':'presence','password':'PresenceTest123!','email':'presence@example.com','location_ids':[lid]}).json()
+        op=auth('presence','PresenceTest123!')
+        assert u['email']=='presence@example.com'
+        assert client.patch(f"/api/users/{u['id']}",headers=admin,json={'email':'invalid\naddress'}).status_code==400
+        assert client.get('/api/presence/me').status_code==401
+        assert client.get('/api/presence/overview',headers=op).status_code==403
+        assert client.post('/api/presence/check-in',headers=op,json={'location_id':999999}).status_code==403
+        r=client.post('/api/presence/check-in',headers=op,json={'location_id':lid});assert r.status_code==200,r.text
+        key=r.json()['presence_key']
+        assert client.post('/api/presence/check-in',headers=op,json={'location_id':lid}).json()['presence_key']==key
+        overview=client.get('/api/presence/overview',headers=admin).json()
+        assert next(l for l in overview['locations'] if l['id']==lid)['people'][0]['id']==u['id']
+        with main.SessionLocal() as session:
+            obj=session.get(main.User,u['id']);now=datetime.utcnow();obj.presence_started_at=now-timedelta(hours=12);session.commit()
+            assert main.send_presence_reminders(session,now)['sent']==[]
+            assert main.send_presence_reminders(session,now+timedelta(seconds=1))['sent']==[u['id']]
+            assert main.send_presence_reminders(session,now+timedelta(hours=1))['sent']==[]
+        assert len(sent)==1 and sent[0][2]==['presence@example.com']
+        assert client.post('/api/presence/check-out',headers=op,json={'presence_key':'stale'}).status_code==409
+        assert client.post('/api/presence/check-out',headers=op,json={'presence_key':key}).json()['present'] is False
+        assert client.get('/api/presence/me',headers=op).json()['present'] is False
+        new=client.post('/api/presence/check-in',headers=op,json={'location_id':lid}).json()
+        assert new['presence_key']!=key
+        assert client.post('/api/presence/check-out',headers=op,json={'presence_key':key}).status_code==409
+        with main.SessionLocal() as session:
+            obj=session.get(main.User,u['id']);obj.presence_started_at=now-timedelta(hours=13);session.commit()
+            def fail(*args):raise RuntimeError('Simulated mail error')
+            monkeypatch.setattr(main,'microsoft_graph_send_email',fail)
+            assert main.send_presence_reminders(session,now)['errors']
+            assert session.get(main.User,u['id']).presence_notified_at is None
+            monkeypatch.setattr(main,'microsoft_graph_send_email',lambda *args:sent.append(args))
+            assert main.send_presence_reminders(session,now)['sent']==[u['id']]
+        client.post('/api/presence/check-out',headers=op,json={'presence_key':new['presence_key']})
+
+
 def test_quality_search_respects_owner_and_filters():
     from quality import legacy
     import sqlite3
