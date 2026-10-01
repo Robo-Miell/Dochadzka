@@ -328,7 +328,10 @@ def run_due_quality_reports(host, now_local):
             (skipped if result.get('skipped') else sent).append(result)
         except Exception as exc:
             errors.append({'job_id': job['id'], 'order_number': job['order_number'], 'error': str(exc)})
-    return {'sent': sent, 'skipped': skipped, 'errors': errors}
+    from .milestones import send_due
+    notices = send_due(host, now_local.date(), _lock)
+    errors.extend(notices['errors'])
+    return {'sent': sent, 'skipped': skipped, 'errors': errors, 'milestones': notices}
 
 
 def register(host):
@@ -382,7 +385,22 @@ def register(host):
                 return Response(content, media_type='application/pdf' if pdf else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition':f'attachment; filename="MIELL_Analytics_{jid}_{today}.{ext}"'})
             data['charts'] = await run_in_threadpool(analytics.svg_charts, data)
             return data
-        if endpoint == 'me' and request.method == 'GET':
+        if endpoint == 'project-managers' and request.method == 'GET':
+            if user.role != 'admin':
+                raise HTTPException(403, 'Len pre administrátora')
+            admins = session.scalars(select(host.User).where(host.User.role=='admin',host.User.active==True)).all()
+            return {'managers':[{'id':u.id,'name':u.name,'has_email':bool(u.email)} for u in admins]}
+        progress_match = re.fullmatch(r'jobs/(\d+)/progress', endpoint)
+        if progress_match and request.method == 'GET':
+            with legacy.db() as con:
+                job = legacy.get_job(con,int(progress_match[1]),True)
+            if not job:
+                raise HTTPException(404, 'Zákazka neexistuje')
+            if user.role != 'admin' and (not job['active'] or job.get('location_id') not in host.assigned_location_ids(user)):
+                raise HTTPException(403, 'K zákazke nemáš prístup')
+            from .milestones import progress
+            return progress(job,datetime.now(ZoneInfo(host.REPORTING_TIMEZONE)).date())
+        if endpoint == 'me'  and request.method == 'GET':
             return {'user': sync_identity(user)}
         if endpoint == 'locations' and request.method == 'GET':
             return {'locations': host.locations(session=session, user=user)}
@@ -439,6 +457,10 @@ def register(host):
                 raise HTTPException(400, 'Vyber prevádzku vytvorenú v Dochádzke')
             payload['location_id']=lid
             normalize_job_reporting_payload(payload, host)
+            from .milestones import validate
+            with legacy.db() as con:
+                previous = legacy.get_job(con,int(endpoint.split('/')[1]),True) if '/' in endpoint else {}
+            validate(payload, previous or {}, host, session)
         if endpoint == 'records' and request.method == 'POST':
             try:
                 target_id=int(payload.get('employee_id') or user.id)

@@ -152,6 +152,9 @@ def init_db():
     ]:
         if col not in jcols:
             con.execute(ddl)
+    for col, kind in [('project_manager_id','INTEGER'),('piece_limit','INTEGER'),('end_date','TEXT'),('quantity_notice_key','TEXT'),('date_notice_key','TEXT')]:
+        if col not in jcols:
+            con.execute(f'ALTER TABLE jobs ADD COLUMN {col} {kind}')
     # V2.3: OFF is no longer a selectable norm mode. Legacy OFF jobs become operator-time jobs.
     con.execute("UPDATE jobs SET norm_mode='time', norm_enabled=1 WHERE norm_mode IS NULL OR norm_mode='' OR norm_mode='off'")
     rcols = table_columns(con, 'records')
@@ -199,9 +202,17 @@ def get_job(con, job_id, include_inactive=True):
     r = con.execute(f'SELECT * FROM jobs WHERE {where}', (job_id,)).fetchone()
     if not r: return None
     j = dictrow(r)
+    j['checked_total'] = con.execute('SELECT COALESCE(SUM(checked_items),0) FROM records WHERE job_id=? AND COALESCE(archived,0)=0',(job_id,)).fetchone()[0]
     j['parts'] = [dictrow(x) for x in con.execute('SELECT * FROM job_parts WHERE job_id=? AND active=1 ORDER BY sort_order,id', (job_id,)).fetchall()]
     j['errors'] = [dictrow(x) for x in con.execute('SELECT * FROM job_errors WHERE job_id=? AND active=1 ORDER BY sort_order,id', (job_id,)).fetchall()]
     return j
+
+
+def save_job_limits(con, jid, data):
+    # Missing keys from older clients preserve existing settings.
+    for key in ('project_manager_id','piece_limit','end_date'):
+        if key in data:
+            con.execute(f'UPDATE jobs SET {key}=? WHERE id=?',(data[key],jid))
 
 
 def list_jobs(con, include_inactive=False):
@@ -897,6 +908,7 @@ class Handler(BaseHTTPRequestHandler):
                 errors=[str(x).strip() for x in errors if str(x).strip()]
                 report_enabled,report_recipients,report_time,report_formats=parse_job_reporting(data)
                 now=datetime.now().isoformat(timespec='seconds'); con=db(); cur=con.execute('INSERT INTO jobs(order_number,brief_description,norm_enabled,norm_time,norm_mode,norm_ct_seconds,active,created_at,updated_at,location_id,reporting_enabled,reporting_recipients,reporting_time,reporting_formats) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(order,brief,norm_enabled,norm_time,norm_mode,norm_ct_seconds,1 if data.get('active',True) else 0,now,now,data.get('location_id'),report_enabled,report_recipients,report_time,report_formats)); jid=cur.lastrowid
+                save_job_limits(con,jid,data)
                 for i,p in enumerate(parts): con.execute('INSERT INTO job_parts(job_id,item_number,part_name,norm_per_hour,sort_order,active) VALUES(?,?,?,?,?,1)',(jid,p['item_number'],p['part_name'],p.get('norm_per_hour'),i))
                 for i,e in enumerate(errors): con.execute('INSERT INTO job_errors(job_id,name,sort_order,active) VALUES(?,?,?,1)',(jid,e,i))
                 con.commit(); job=get_job(con,jid,True); con.close(); return self._json({'job':job},201)
@@ -942,6 +954,7 @@ class Handler(BaseHTTPRequestHandler):
                 errors=[str(x).strip() for x in (data.get('errors') or []) if str(x).strip()]
                 report_enabled,report_recipients,report_time,report_formats=parse_job_reporting(data)
                 con=db(); con.execute('UPDATE jobs SET order_number=?,brief_description=?,norm_enabled=?,norm_time=?,norm_mode=?,norm_ct_seconds=?,active=?,updated_at=?,location_id=?,reporting_enabled=?,reporting_recipients=?,reporting_time=?,reporting_formats=? WHERE id=?',(order,brief,norm_enabled,norm_time,norm_mode,norm_ct_seconds,1 if data.get('active',True) else 0,datetime.now().isoformat(timespec='seconds'),data.get('location_id'),report_enabled,report_recipients,report_time,report_formats,jid))
+                save_job_limits(con,jid,data)
                 # Do not delete definitions referenced by historical records. Reuse matching IDs and deactivate removed definitions.
                 old_parts=con.execute('SELECT * FROM job_parts WHERE job_id=?',(jid,)).fetchall(); part_by_num={x['item_number']:x for x in old_parts}
                 con.execute('UPDATE job_parts SET active=0 WHERE job_id=?',(jid,))

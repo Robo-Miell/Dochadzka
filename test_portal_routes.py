@@ -252,3 +252,59 @@ def test_quality_search_respects_owner_and_filters():
     assert legacy.record_query(con,op,{'search':['skraba'],'shift':['N']}) == []
     assert legacy.record_query(con,op,{'search':["' OR 1=1 --"]}) == []
     con.close()
+
+
+def test_job_milestones(monkeypatch):
+    from datetime import date
+    from quality import legacy, integration, milestones
+    with TestClient(main.app) as client:
+        def auth(login,password):
+            r=client.post('/api/auth/login',json=dict(login=login,password=password))
+            assert r.status_code==200,r.text
+            return {'Authorization':'Bearer '+r.json()['access_token']}
+        admin=auth('admin','PortalTest123!')
+        uid=client.get('/api/me',headers=admin).json()['id']
+        assert client.patch(f'/api/users/{uid}',headers=admin,json={'email':'manager@example.com'}).status_code==200
+        loc=client.post('/api/locations',headers=admin,json={'name':'Milestone site'}).json()['id']
+        opdata=client.post('/api/users',headers=admin,json=dict(personal_number='milestone-op',name='Milestone OP',login='milestone-op',password='Milestone123!',role='employee',location_ids=[loc])).json()
+        op=auth('milestone-op','Milestone123!')
+        body=dict(order_number='MILESTONE-TEST',brief_description='Test',location_id=loc,norm_mode='ct',norm_ct_seconds=1,parts=[{'item_number':'P1'}],piece_limit=100,project_manager_id=uid,end_date='2026-10-10')
+        for invalid in [{'piece_limit':1.5},{'piece_limit':-1},{'end_date':'2026-02-30'},{'project_manager_id':opdata['id']},{'project_manager_id':None}]:
+            assert client.post('/quality/api/jobs',headers=admin,json={**body,**invalid}).status_code==400
+        r=client.post('/quality/api/jobs',headers=admin,json=body)
+        assert r.status_code==201,r.text
+        job=r.json()['job']; jid=job['id']
+        assert job['piece_limit']==100 and job['end_date']=='2026-10-10'
+        assert client.get('/quality/api/project-managers',headers=op).status_code==403
+        assert uid in [m['id'] for m in client.get('/quality/api/project-managers',headers=admin).json()['managers']]
+        def record(count,headers):
+            r=client.post('/quality/api/records',headers=headers,json=dict(job_id=jid,part_id=job['parts'][0]['id'],checked_items=count,ok_items=count,nok_items=0,shift='R'))
+            assert r.status_code==201,r.text
+            return r.json()['id']
+        first=record(89,admin)
+        sent=[]
+        monkeypatch.setattr(main,'microsoft_graph_send_email',lambda *args:sent.append(args))
+        assert not milestones.send_due(main,date(2026,10,2),integration._lock)['sent']
+        second=record(1,op)
+        p=client.get(f'/quality/api/jobs/{jid}/progress',headers=op)
+        assert p.status_code==200 and p.json()['checked_total']==90 and p.json()['remaining']==10
+        result=milestones.send_due(main,date(2026,10,2),integration._lock)
+        assert len(result['sent'])==1 and sent[0][2]==['manager@example.com']
+        assert not milestones.send_due(main,date(2026,10,2),integration._lock)['sent']
+        def fail(*args): raise RuntimeError('simulated mail failure')
+        monkeypatch.setattr(main,'microsoft_graph_send_email',fail)
+        assert milestones.send_due(main,date(2026,10,3),integration._lock)['errors']
+        monkeypatch.setattr(main,'microsoft_graph_send_email',lambda *args:sent.append(args))
+        assert len(milestones.send_due(main,date(2026,10,3),integration._lock)['sent'])==1
+        assert not milestones.send_due(main,date(2026,10,4),integration._lock)['sent']
+        assert client.post(f'/quality/api/records/{first}/archive',headers=admin,json={}).status_code==200
+        assert client.get(f'/quality/api/jobs/{jid}/progress',headers=op).json()['checked_total']==1
+        # Editing through an old client must preserve the new settings.
+        old={k:v for k,v in body.items() if k not in ('piece_limit','end_date','project_manager_id')}
+        assert client.put(f'/quality/api/jobs/{jid}',headers=admin,json=old).json()['job']['piece_limit']==100
+        assert client.put(f'/quality/api/jobs/{jid}',headers=admin,json={**body,'piece_limit':1,'end_date':'2026-10-11'}).status_code==200
+        assert len(milestones.send_due(main,date(2026,10,4),integration._lock)['sent'])==2
+        assert milestones.progress({'checked_total':110,'piece_limit':100,'end_date':None},date(2026,10,1))['remaining']==0
+        client.post(f'/quality/api/jobs/{jid}/archive',headers=admin,json={})
+        assert client.get(f'/quality/api/jobs/{jid}/progress',headers=op).status_code==403
+        assert not milestones.send_due(main,date(2026,10,12),integration._lock)['sent']
