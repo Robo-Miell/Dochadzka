@@ -308,3 +308,50 @@ def test_job_milestones(monkeypatch):
         client.post(f'/quality/api/jobs/{jid}/archive',headers=admin,json={})
         assert client.get(f'/quality/api/jobs/{jid}/progress',headers=op).status_code==403
         assert not milestones.send_due(main,date(2026,10,12),integration._lock)['sent']
+
+
+def test_transactional_record_history(monkeypatch):
+    from datetime import date
+    from quality import legacy
+    with TestClient(main.app) as client:
+        def auth(login,password):
+            r=client.post('/api/auth/login',json=dict(login=login,password=password))
+            assert r.status_code==200,r.text
+            return {'Authorization':'Bearer '+r.json()['access_token']}
+        admin=auth('admin','PortalTest123!')
+        loc=client.post('/api/locations',headers=admin,json={'name':'Audit site'}).json()['id']
+        user=client.post('/api/users',headers=admin,json=dict(personal_number='audit-op',name='Audit Operator',login='audit-op',password='AuditTest123!',role='employee',location_ids=[loc])).json()
+        op=auth('audit-op','AuditTest123!')
+        a=client.post('/api/attendance',headers=op,json=dict(work_date=date.today().isoformat(),location_id=loc,type='Práca',time_from='06:00',time_to='14:00',billing_confirmed=True))
+        assert a.status_code==200,a.text
+        rid=a.json()['id'];url=f'/api/attendance-history?record_id={rid}'
+        assert client.get(url,headers=op).status_code==403
+        assert client.get(url).status_code==401
+        h=client.get(url,headers=admin).json()['history'];assert len(h)==1 and h[0]['actor']['id']==user['id']
+        assert client.patch(f'/api/attendance/{rid}/status',headers=admin,json={'status':'approved'}).status_code==200
+        h=client.get(url,headers=admin).json()['history'];assert h[0]['before']['status']=='pending' and h[0]['after']['status']=='approved' and h[0]['actor']['login']=='admin'
+        assert client.patch(f'/api/attendance/{rid}',headers=admin,json={'time_to':'15:00','note':'Changed'}).status_code==200
+        assert client.patch(f'/api/attendance/{rid}',headers=admin,json={'time_to':'99:99'}).status_code==400
+        assert len(client.get(url,headers=admin).json()['history'])==3
+        assert client.delete(f'/api/attendance/{rid}',headers=admin).status_code==200
+        h=client.get(url,headers=admin).json()['history'];assert h[0]['action']=='delete' and h[0]['before']['note']=='Changed'
+        body=dict(order_number='AUDIT-JOB',brief_description='Audit test',location_id=loc,norm_mode='ct',norm_ct_seconds=1,parts=[{'item_number':'AUDIT-PART'}])
+        job=client.post('/quality/api/jobs',headers=admin,json=body).json()['job']
+        record=dict(job_id=job['id'],part_id=job['parts'][0]['id'],checked_items=10,ok_items=10,nok_items=0,shift='R')
+        created=client.post('/quality/api/records',headers=op,json=record);assert created.status_code==201,created.text
+        qid=created.json()['id'];qurl=f'/quality/api/record-history?record_id={qid}'
+        assert client.get(qurl,headers=op).status_code==403
+        h=client.get(qurl,headers=admin).json()['history'];assert h[0]['actor']['id']==user['id']
+        assert client.put(f'/quality/api/records/{qid}',headers=admin,json={**record,'checked_items':12,'ok_items':12}).status_code==200
+        h=client.get(qurl,headers=admin).json()['history'];assert h[0]['before']['checked_items']==10 and h[0]['after']['checked_items']==12
+        for action in ['archive','restore']:
+            assert client.post(f'/quality/api/records/{qid}/{action}',headers=admin,json={}).status_code==200
+        assert len(client.get(qurl,headers=admin).json()['history'])==4
+        # Audit failure must roll the record update back as well.
+        def fail(*args):raise RuntimeError('audit write failure')
+        with monkeypatch.context() as patch:
+            patch.setattr(legacy,'audit_record',fail)
+            assert client.put(f'/quality/api/records/{qid}',headers=admin,json={**record,'checked_items':99,'ok_items':99}).status_code==400
+        with legacy.db() as con:assert con.execute('SELECT checked_items FROM records WHERE id=?',(qid,)).fetchone()[0]==12
+        assert client.delete(f"/quality/api/jobs/{job['id']}?force=1",headers=admin).status_code==200
+        h=client.get(qurl,headers=admin).json()['history'];assert len(h)==5 and h[0]['action']=='delete' and h[0]['before']['checked_items']==12

@@ -65,7 +65,7 @@ def sync_identity(user):
             qid = cur.lastrowid
             con.execute('UPDATE users SET central_login=? WHERE id=?',(user.login,qid))
             con.execute('INSERT INTO unified_identity VALUES(?,?)', (user.id, qid))
-        return dict(id=qid, username=user.login, display_name=user.name, role=role)
+        return dict(id=qid, central_id=user.id, username=user.login, display_name=user.name, role=role)
 
 
 def has_records(central_id):
@@ -385,7 +385,15 @@ def register(host):
                 return Response(content, media_type='application/pdf' if pdf else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition':f'attachment; filename="MIELL_Analytics_{jid}_{today}.{ext}"'})
             data['charts'] = await run_in_threadpool(analytics.svg_charts, data)
             return data
-        if endpoint == 'project-managers' and request.method == 'GET':
+        if endpoint == 'record-history' and request.method == 'GET':
+            if user.role != 'admin':raise HTTPException(403,'Len pre administrátora')
+            rid=request.query_params.get('record_id')
+            try: rid=int(rid) if rid is not None else None
+            except ValueError:raise HTTPException(400,'Neplatný záznam')
+            with legacy.db() as con:
+                rows=con.execute('SELECT * FROM record_audit'+(' WHERE record_id=?' if rid is not None else '')+' ORDER BY at DESC LIMIT 500',(rid,) if rid is not None else ()).fetchall()
+                return {'history':[{'id':r['id'],'record_id':r['record_id'],'at':r['at'],'actor':json.loads(r['actor']),'action':r['action'],'before':json.loads(r['before_data']),'after':json.loads(r['after_data'])} for r in rows]}
+        if endpoint == 'project-managers'  and request.method == 'GET':
             if user.role != 'admin':
                 raise HTTPException(403, 'Len pre administrátora')
             admins = session.scalars(select(host.User).where(host.User.role=='admin',host.User.active==True)).all()

@@ -387,6 +387,7 @@ def get_current_user(
     token_version = int(data.get("ver", 0) or 0)
     if token_version != int(user.token_version or 0):
         raise HTTPException(401, "Prihlásenie už nie je platné. Prihlás sa znova.")
+    session.info['audit_actor'] = {'id':user.id,'name':user.name,'login':user.login}
     return user
 
 
@@ -1308,7 +1309,7 @@ def update_attendance(
     session: Session = Depends(db),
     _: User = Depends(admin_only),
 ):
-    obj = session.get(Attendance, attendance_id)
+    obj = session.get(Attendance, attendance_id, with_for_update=True)
     if not obj:
         raise HTTPException(404, "Záznam neexistuje")
 
@@ -1361,7 +1362,7 @@ def set_status(
 ):
     if data.status not in VALID_STATUSES:
         raise HTTPException(400, "Neplatný stav")
-    obj = session.get(Attendance, attendance_id)
+    obj = session.get(Attendance, attendance_id, with_for_update=True)
     if not obj:
         raise HTTPException(404, "Záznam neexistuje")
     obj.status = data.status
@@ -1376,7 +1377,7 @@ def delete_attendance(
     session: Session = Depends(db),
     user: User = Depends(get_current_user),
 ):
-    obj = session.get(Attendance, attendance_id)
+    obj = session.get(Attendance, attendance_id, with_for_update=True)
     if not obj:
         raise HTTPException(404, "Záznam neexistuje")
     if user.role != "admin" and not (obj.user_id == user.id and obj.status == "pending"):
@@ -2506,3 +2507,6 @@ _quality_data_dir = os.getenv("MIELL_DATA_DIR", os.path.join(os.path.dirname(__f
 quality_integration.configure(_quality_data_dir)
 quality_integration.register(sys.modules[__name__])
 unified_routes.register(sys.modules[__name__])
+
+from audit_support import install as install_audit
+install_audit(sys.modules[__name__])

@@ -130,6 +130,8 @@ def init_db():
         FOREIGN KEY(user_id) REFERENCES users(id)
     );
     ''')
+    con.execute('CREATE TABLE IF NOT EXISTS record_audit (id TEXT PRIMARY KEY,record_id INTEGER NOT NULL,at TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,before_data TEXT NOT NULL,after_data TEXT NOT NULL)')
+    con.execute('CREATE INDEX IF NOT EXISTS record_audit_record ON record_audit(record_id)')
     # Lightweight migration from V1 if an old reporting.db is copied into V2.
     jcols = table_columns(con, 'jobs')
     if 'norm_enabled' not in jcols:
@@ -191,6 +193,21 @@ def init_db():
                 # V1 free-text norm cannot reliably become a time. Leave norm disabled.
                 con.execute('UPDATE jobs SET norm_enabled=0 WHERE id=?', (j['id'],))
     con.commit(); con.close()
+
+
+def audit_snapshot(con, rid):
+    from .storage import database_url
+    if not database_url() and not con.in_transaction:con.execute('BEGIN IMMEDIATE')
+    row=con.execute('SELECT * FROM records WHERE id=?'+(' FOR UPDATE' if database_url() else ''),(rid,)).fetchone()
+    return dictrow(row) if row else {}
+
+
+def audit_record(con, rid, user, action, before):
+    import uuid
+    after=audit_snapshot(con,rid)
+    if before==after:return
+    actor={'id':user.get('central_id'), 'quality_id':user['id'],'name':user['display_name'],'login':user['username']}
+    con.execute('INSERT INTO record_audit(id,record_id,at,actor,action,before_data,after_data) VALUES(?,?,?,?,?,?,?)',(str(uuid.uuid4()),rid,datetime.utcnow().isoformat()+'Z',json.dumps(actor,ensure_ascii=False),action,json.dumps(before,ensure_ascii=False),json.dumps(after,ensure_ascii=False)))
 
 
 def dictrow(r):
@@ -885,7 +902,7 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             u=self._auth(admin=True)
             if not u:return
-            rid=int(m.group(1)); archived=1 if m.group(2)=='archive' else 0; con=db(); con.execute('UPDATE records SET archived=? WHERE id=?',(archived,rid)); con.commit(); con.close(); return self._json({'ok':True,'archived':bool(archived)})
+            rid=int(m.group(1)); archived=1 if m.group(2)=='archive' else 0; con=db(); before=audit_snapshot(con,rid); con.execute('UPDATE records SET archived=? WHERE id=?',(archived,rid)); audit_record(con,rid,u,m.group(2),before); con.commit(); con.close(); return self._json({'ok':True,'archived':bool(archived)})
         m=re.fullmatch(r'/api/jobs/(\d+)/(archive|restore)',path)
         if m:
             u=self._auth(admin=True)
@@ -930,7 +947,7 @@ class Handler(BaseHTTPRequestHandler):
                 con=db(); v=prepare_record(con,data,u,False)
                 cur=con.execute('''INSERT INTO records(job_id,part_id,user_id,record_date,delivery_note,checked_items,ok_items,nok_items,reworked_ok,reworked_nok,note,job_snapshot,part_snapshot,error_counts,shift,work_time_seconds,norm_seconds_per_item,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                     (v['jid'],v['pid'],data.get('_record_user_id',u['id']),v['record_date'],v['delivery_note'],v['checked'],v['ok'],v['nok'],v['rwok'],v['rwnok'],v['note'],v['job_snapshot'],v['part_snapshot'],json.dumps(v['counts']),v['shift'],v['work_time_seconds'],v['norm_seconds'],datetime.now().isoformat(timespec='seconds')))
-                con.commit(); rid=cur.lastrowid; con.close(); return self._json({'ok':True,'id':rid,'norm_seconds_per_item':v['norm_seconds'],'work_time_seconds':v['work_time_seconds']},201)
+                rid=cur.lastrowid; audit_record(con,rid,u,'create',{}); con.commit(); con.close(); return self._json({'ok':True,'id':rid,'norm_seconds_per_item':v['norm_seconds'],'work_time_seconds':v['work_time_seconds']},201)
             except Exception as e:
                 try: con.close()
                 except: pass
@@ -985,12 +1002,12 @@ class Handler(BaseHTTPRequestHandler):
         m=re.fullmatch(r'/api/records/(\d+)',path)
         if m:
             try:
-                rid=int(m.group(1)); con=db(); existing=record_by_id(con,rid)
+                rid=int(m.group(1)); con=db(); before=audit_snapshot(con,rid); existing=record_by_id(con,rid)
                 if not existing: con.close(); raise ValueError('Záznam neexistuje.')
                 v=prepare_record(con,data,u,True)
                 con.execute('''UPDATE records SET job_id=?,part_id=?,record_date=?,delivery_note=?,checked_items=?,ok_items=?,nok_items=?,reworked_ok=?,reworked_nok=?,note=?,job_snapshot=?,part_snapshot=?,error_counts=?,shift=?,work_time_seconds=?,norm_seconds_per_item=? WHERE id=?''',
                     (v['jid'],v['pid'],v['record_date'],v['delivery_note'],v['checked'],v['ok'],v['nok'],v['rwok'],v['rwnok'],v['note'],v['job_snapshot'],v['part_snapshot'],json.dumps(v['counts']),v['shift'],v['work_time_seconds'],v['norm_seconds'],rid))
-                con.commit(); con.close(); return self._json({'ok':True,'id':rid,'norm_seconds_per_item':v['norm_seconds'],'work_time_seconds':v['work_time_seconds']})
+                audit_record(con,rid,u,'update',before); con.commit(); con.close(); return self._json({'ok':True,'id':rid,'norm_seconds_per_item':v['norm_seconds'],'work_time_seconds':v['work_time_seconds']})
             except Exception as e:
                 try: con.close()
                 except: pass
@@ -1002,14 +1019,16 @@ class Handler(BaseHTTPRequestHandler):
         if not u:return
         m=re.fullmatch(r'/api/records/(\d+)',path)
         if m:
-            rid=int(m.group(1)); con=db(); con.execute('DELETE FROM records WHERE id=?',(rid,)); con.commit(); con.close(); return self._json({'ok':True})
+            rid=int(m.group(1)); con=db(); before=audit_snapshot(con,rid); con.execute('DELETE FROM records WHERE id=?',(rid,)); audit_record(con,rid,u,'delete',before); con.commit(); con.close(); return self._json({'ok':True})
         m=re.fullmatch(r'/api/jobs/(\d+)',path)
         if m:
             jid=int(m.group(1)); force=(q.get('force',['0'])[0]=='1'); con=db(); used=con.execute('SELECT COUNT(*) c FROM records WHERE job_id=?',(jid,)).fetchone()['c']
             if used and not force:
                 con.close(); return self._json({'error':'Zákazka obsahuje záznamy. Najprv ju archivuj, alebo potvrď trvalé vymazanie vrátane všetkých záznamov.'},409)
             if force:
+                before_records=[dictrow(r) for r in con.execute('SELECT * FROM records WHERE job_id=?',(jid,)).fetchall()]
                 con.execute('DELETE FROM records WHERE job_id=?',(jid,))
+                for before in before_records: audit_record(con,before['id'],u,'delete',before)
             con.execute('DELETE FROM jobs WHERE id=?',(jid,)); con.commit(); con.close(); return self._json({'ok':True,'deleted_records':used if force else 0})
         return self._json({'error':'Endpoint neexistuje.'},404)
 

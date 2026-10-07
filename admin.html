@@ -53,7 +53,7 @@
         <div class="card"><div class="muted">Čaká na schválenie</div><div id="sPend" class="stat">0</div></div>
         <div class="card"><div class="muted">Záznamy</div><div id="sAtt" class="stat">0</div></div>
       </div>
-      <div id="presencePanel" data-admin="1" class="section"></div><div class="section"><h3>Na schválenie</h3><div class="table"><table><thead><tr><th>Dátum</th><th>Zamestnanec</th><th>Prevádzka</th><th>Typ</th><th>Čas</th><th>KM</th><th>Fakturácia</th><th>Akcia</th></tr></thead><tbody id="pendingBody"></tbody></table></div></div>
+      <div id="presencePanel" data-admin="1" class="section"></div><div class="section"><h3>Na schválenie</h3><button class="ghost" data-history-module="attendance">História všetkých zmien</button><div class="table"><table><thead><tr><th>Dátum</th><th>Zamestnanec</th><th>Prevádzka</th><th>Typ</th><th>Čas</th><th>KM</th><th>Fakturácia</th><th>Akcia</th></tr></thead><tbody id="pendingBody"></tbody></table></div></div>
     </div>
 
     <div id="employees" class="tab hidden">
@@ -384,7 +384,7 @@ function billingConfirmation(x){
 
 function renderPending(){
   const p=attendance.filter(x=>x.status==="pending");
-  $("pendingBody").innerHTML=p.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td>${x.km?`${Number(x.km)} km`:"—"}</td><td>${billingConfirmation(x)}</td><td><div class="actions"><button class="ok approve" data-id="${x.id}">Schváliť</button><button class="danger reject" data-id="${x.id}">Zamietnuť</button><button class="ghost editPending" data-id="${x.id}">Upraviť</button></div></td></tr>`).join("")||'<tr><td colspan="8" class="empty">Žiadne čakajúce záznamy.</td></tr>';
+  $("pendingBody").innerHTML=p.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td>${x.km?`${Number(x.km)} km`:"—"}</td><td>${billingConfirmation(x)}</td><td><div class="actions"><button class="ok approve" data-id="${x.id}">Schváliť</button><button class="danger reject" data-id="${x.id}">Zamietnuť</button><button class="ghost" data-history-module="attendance" data-history-id="${x.id}">História</button><button class="ghost editPending" data-id="${x.id}">Upraviť</button></div></td></tr>`).join("")||'<tr><td colspan="8" class="empty">Žiadne čakajúce záznamy.</td></tr>';
   document.querySelectorAll(".approve").forEach(b=>b.onclick=()=>setStatus(b.dataset.id,"approved"));
   document.querySelectorAll(".reject").forEach(b=>b.onclick=()=>setStatus(b.dataset.id,"rejected"));
   document.querySelectorAll(".editPending").forEach(b=>b.onclick=()=>openAttendance(Number(b.dataset.id)));
@@ -397,7 +397,7 @@ function renderAttendance(){
     const userOk=selectedFilterUsers.size===0||selectedFilterUsers.has(Number(x.user_id));
     return userOk&&(!l||String(x.location_id)===l)&&(!fr||x.work_date>=fr)&&(!to||x.work_date<=to);
   });
-  $("attBody").innerHTML=a.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.personal_number)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td>${Number(x.break_minutes||0)} min ${x.type==="Práca"?(x.deduct_break===false?'<span class="badge">neodrátať</span>':'<span class="badge approved">odrátať</span>'):''}</td><td>${Number(x.hours||0).toFixed(2)}</td><td>${x.km?`${Number(x.km)} km`:"—"}</td><td>${billingConfirmation(x)}</td><td>${status(x.status)}</td><td title="${esc(x.note)}">${esc((x.note||"").length>28?(x.note||"").slice(0,28)+"…":x.note||"")}</td><td><div class="actions"><button class="ghost editAtt" data-id="${x.id}">Upraviť</button><button class="danger delAtt" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="13" class="empty">Pre zvolený filter nie sú záznamy.</td></tr>';
+  $("attBody").innerHTML=a.map(x=>`<tr><td>${esc(x.work_date)}</td><td>${esc(x.personal_number)}</td><td>${esc(x.user_name)}</td><td>${esc(x.location_name)}</td><td>${esc(x.type)}</td><td>${timeText(x)}</td><td>${Number(x.break_minutes||0)} min ${x.type==="Práca"?(x.deduct_break===false?'<span class="badge">neodrátať</span>':'<span class="badge approved">odrátať</span>'):''}</td><td>${Number(x.hours||0).toFixed(2)}</td><td>${x.km?`${Number(x.km)} km`:"—"}</td><td>${billingConfirmation(x)}</td><td>${status(x.status)}</td><td title="${esc(x.note)}">${esc((x.note||"").length>28?(x.note||"").slice(0,28)+"…":x.note||"")}</td><td><div class="actions"><button class="ghost" data-history-module="attendance" data-history-id="${x.id}">História</button><button class="ghost editAtt" data-id="${x.id}">Upraviť</button><button class="danger delAtt" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="13" class="empty">Pre zvolený filter nie sú záznamy.</td></tr>';
   document.querySelectorAll(".editAtt").forEach(b=>b.onclick=()=>openAttendance(Number(b.dataset.id)));
   document.querySelectorAll(".delAtt").forEach(b=>b.onclick=()=>deleteAttendance(Number(b.dataset.id)));
 }
@@ -652,6 +652,6 @@ const m=new Date(),first=new Date(m.getFullYear(),m.getMonth(),1),last=new Date(
 if(!token)location.replace("/");
 if(token){$("loginCard").classList.add("hidden");$("app").classList.remove("hidden");refresh().catch(()=>{localStorage.removeItem("dochadzka_token");location.reload()})}
 </script>
-<script src="/presence.js?v=1"></script></body>
+<script src="/presence.js?v=1"></script><script src="/history.js?v=1"></script></body>
 </html>
 <script>if(location.hash==="#employees")document.querySelector('[data-tab="employees"]').click();</script><script>document.getElementById('attendanceMenu').onclick=()=>{const open=document.querySelector('.miell-sidebar').classList.toggle('open');document.getElementById('attendanceMenu').setAttribute('aria-expanded',String(open))};document.querySelector('.miell-today').textContent=new Date().toLocaleDateString('sk-SK');</script>
