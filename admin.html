@@ -652,6 +652,6 @@ const m=new Date(),first=new Date(m.getFullYear(),m.getMonth(),1),last=new Date(
 if(!token)location.replace("/");
 if(token){$("loginCard").classList.add("hidden");$("app").classList.remove("hidden");refresh().catch(()=>{localStorage.removeItem("dochadzka_token");location.reload()})}
 </script>
-<script src="/presence.js?v=1"></script><script src="/history.js?v=1"></script></body>
+<script src="/presence.js?v=1"></script><script src="/history.js?v=2"></script></body>
 </html>
 <script>if(location.hash==="#employees")document.querySelector('[data-tab="employees"]').click();</script><script>document.getElementById('attendanceMenu').onclick=()=>{const open=document.querySelector('.miell-sidebar').classList.toggle('open');document.getElementById('attendanceMenu').setAttribute('aria-expanded',String(open))};document.querySelector('.miell-today').textContent=new Date().toLocaleDateString('sk-SK');</script>
