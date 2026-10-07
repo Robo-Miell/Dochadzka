@@ -343,7 +343,7 @@ def register(host):
 
     @app.get('/quality/{asset}')
     def quality_asset(asset: str):
-        if asset not in {'app.css', 'app.js', 'logo.png', 'shell.css', 'scanner.js'}:
+        if asset not in {'app.css', 'app.js', 'logo.png', 'shell.css', 'scanner.js', 'record-scroll.js'}:
             raise HTTPException(404)
         return FileResponse(Path(legacy.STATIC_DIR) / asset)
 

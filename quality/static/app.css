@@ -25,3 +25,13 @@
 .analytics-chart{overflow-x:auto;background:#fff}.analytics-chart svg{display:block;width:100%;min-width:620px;height:auto}.analytics-table td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}.analytics-table .analytics-total{background:#e5f2e0;font-weight:700}.analytics-table th{white-space:normal;min-width:90px}
 
 .job-action-stack{display:flex;flex-direction:column;align-items:flex-start;gap:14px}.job-action-stack .job-hero-actions{flex-wrap:wrap}.analytics-logo{display:block;width:190px;max-width:100%;height:auto;margin-bottom:16px}
+
+.records-scroll-controls{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f6f8f7;border-bottom:1px solid var(--line)}
+.records-scroll-controls span{font-size:12px;color:var(--muted);white-space:nowrap}
+.records-scroll-controls input[type=range]{flex:1;min-width:50px;width:auto;padding:0;accent-color:var(--green);cursor:ew-resize}
+.records-scroll-controls button{border:1px solid var(--line);border-radius:7px;background:white;padding:7px 11px;color:var(--green2)}
+.records-scroll-controls button:disabled{opacity:.35;cursor:default}
+.records-scroll-area{max-height:65vh;overflow:auto;scrollbar-width:auto;scrollbar-color:#7f9d85 #edf2ef}
+.records-scroll-area th{position:sticky;top:0;z-index:1}
+.records-scroll-area:focus-visible{outline:2px solid var(--green);outline-offset:-2px}
+@media(max-width:600px){.records-scroll-controls{gap:6px;padding:8px}.records-scroll-controls span{display:none}}
