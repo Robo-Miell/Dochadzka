@@ -58,6 +58,7 @@
 
     <div id="employees" class="tab hidden">
       <div class="top"><div><h3>Zamestnanci</h3><div class="muted">Môžeš meniť osobné číslo, meno, login, heslo, priradiť viac prevádzok aj meniť aktivitu.</div></div><button id="newEmployee" class="primary">+ Zamestnanec</button></div>
+      <div class="filters" style="margin-bottom:12px"><label for="employeeLocationFilter">Prevádzka</label><select id="employeeLocationFilter"><option value="">Všetky prevádzky</option></select><div id="employeeFilterCount" class="hint" aria-live="polite"></div></div>
       <div class="table"><table><thead><tr><th>Os. číslo</th><th>Meno</th><th>Login</th><th>Práva</th><th>Prevádzky</th><th>Stav</th><th>Akcie</th></tr></thead><tbody id="empBody"></tbody></table></div>
     </div>
 
@@ -334,7 +335,12 @@ function fillSelects(){
 }
 
 function renderEmployees(){
-  $("empBody").innerHTML=accounts.map(x=>`<tr><td><b>${esc(x.personal_number)}</b></td><td>${esc(x.name)}</td><td>${esc(x.login)}</td><td>${x.role==="admin"?"ADMIN":"OPERATOR"}</td><td>${esc((Array.isArray(x.location_names)&&x.location_names.length?x.location_names:[x.location_name].filter(Boolean)).join(", "))}</td><td>${x.active?'<span class="badge approved">Aktívny</span>':'<span class="badge rejected">Neaktívny</span>'}</td><td><div class="actions"><button class="ghost editEmp" data-id="${x.id}">Upraviť</button><button ${x.role==="admin"?"disabled":""} class="${x.active?'warn':'ok'} toggle" data-id="${x.id}">${x.active?'Deaktivovať':'Aktivovať'}</button><button ${x.role==="admin"?"disabled":""} class="danger delEmp" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="6" class="empty">Žiadni zamestnanci.</td></tr>';
+  const filter=$("employeeLocationFilter"),selected=filter.value;
+  filter.innerHTML='<option value="">Všetky prevádzky</option><option value="unassigned">Bez priradenej prevádzky</option>'+locations.map(l=>`<option value="${l.id}">${esc(l.name)}</option>`).join('');
+  if([...filter.options].some(o=>o.value===selected))filter.value=selected;
+  const filtered=accounts.filter(u=>{const ids=Array.isArray(u.location_ids)&&u.location_ids.length?u.location_ids:[u.location_id].filter(Boolean);return !filter.value||(filter.value==='unassigned'?ids.length===0:ids.some(id=>String(id)===filter.value))});
+  $("employeeFilterCount").textContent=`Zobrazených ${filtered.length} z ${accounts.length} zamestnancov`;
+  $("empBody").innerHTML=filtered.map(x=>`<tr><td><b>${esc(x.personal_number)}</b></td><td>${esc(x.name)}</td><td>${esc(x.login)}</td><td>${x.role==="admin"?"ADMIN":"OPERATOR"}</td><td>${esc((Array.isArray(x.location_names)&&x.location_names.length?x.location_names:[x.location_name].filter(Boolean)).join(", "))}</td><td>${x.active?'<span class="badge approved">Aktívny</span>':'<span class="badge rejected">Neaktívny</span>'}</td><td><div class="actions"><button class="ghost editEmp" data-id="${x.id}">Upraviť</button><button ${x.role==="admin"?"disabled":""} class="${x.active?'warn':'ok'} toggle" data-id="${x.id}">${x.active?'Deaktivovať':'Aktivovať'}</button><button ${x.role==="admin"?"disabled":""} class="danger delEmp" data-id="${x.id}">Odstrániť</button></div></td></tr>`).join("")||'<tr><td colspan="7" class="empty">Žiadni zamestnanci pre zvolenú prevádzku.</td></tr>';
 
   document.querySelectorAll(".editEmp").forEach(b=>b.onclick=()=>openEmployee(Number(b.dataset.id)));
   document.querySelectorAll(".toggle").forEach(b=>b.onclick=async()=>{
@@ -607,6 +613,7 @@ async function deleteAttendance(id){const a=attendance.find(x=>x.id===id);if(!co
 $("loginBtn").onclick=login;$("password").onkeydown=e=>{if(e.key==="Enter")login()};$("logout").onclick=()=>window.miellLogout();
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.add("hidden"));$(b.dataset.tab).classList.remove("hidden");document.querySelectorAll("[data-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active");$("attendanceTitle").textContent=b.textContent;document.querySelector(".miell-sidebar").classList.remove("open");$("attendanceMenu").setAttribute("aria-expanded","false")});
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).close());
+$("employeeLocationFilter").onchange=renderEmployees;
 $("newEmployee").onclick=()=>openEmployee();$("newLocation").onclick=()=>openLocation();$("newAttendance").onclick=()=>openAttendance();$("saveEmp").onclick=saveEmployee;$("openResetPass").onclick=openResetPassword;$("saveResetPass").onclick=saveResetPassword;$("saveLoc").onclick=saveLocation;$("saveAtt").onclick=saveAttendance;$("atype").onchange=updateAttTimeFields;$("aloc").onchange=updateAttTimeFields;$("addLocShift").onclick=()=>{locShiftDraft.push(newShiftDraft());renderLocShiftRows()};$("lreportfrequency").onchange=updateReportingVisibility;$("sendReportNow").onclick=sendReportNow;
 ["fFrom","fTo","fLoc"].forEach(id=>$(id).oninput=renderAttendance);
 
