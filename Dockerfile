@@ -5,7 +5,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py runtime_settings.py unified_routes.py audit_support.py ./
+COPY main.py runtime_settings.py unified_routes.py audit_support.py scanner_backup.py ./
+COPY scanner_admin.html ./
 COPY history.js presence.js admin.html portal.html portal.js portal.css shared.js brand.png ./
 COPY quality ./quality
 
