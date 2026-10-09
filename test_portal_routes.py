@@ -394,8 +394,9 @@ def test_oktorun_gate_and_notifications(monkeypatch):
         mails=[];monkeypatch.setattr(main,'microsoft_graph_send_email',lambda *args:mails.append(args))
         no={**yes,'2':False}
         failed=submit(jobs[0],d,no);assert failed.status_code==200 and not failed.json()['passed']
-        assert len(mails)==1 and mails[0][2]==['manager@example.com'] and 'nadriadeného' in mails[0][1]
-        assert record(jobs[0]).status_code==400
+        assert len(mails)==1 and mails[0][2]==['manager@example.com'] and 'koordinátora' in mails[0][1]
+        assert record(jobs[0]).status_code==201
+        assert start(jobs[0])['approved'] and start(jobs[0])['passed'] is False
         assert not submit(jobs[0],d,yes).json()['passed'] and len(mails)==1
         retry=client.post(f"/quality/api/jobs/{jobs[0]['id']}/oktorun/retry",headers=op,json={'generation':d['generation']}).json()
         passed=submit(jobs[0],retry,yes);assert passed.json()['passed']
@@ -410,7 +411,7 @@ def test_oktorun_gate_and_notifications(monkeypatch):
         def fail(*args):raise RuntimeError('test mail outage')
         monkeypatch.setattr(main,'microsoft_graph_send_email',fail)
         failed=submit(jobs[1],d2,no);assert failed.json()['email_pending']
-        assert record(jobs[1]).status_code==400
+        assert record(jobs[1]).status_code==201
         monkeypatch.setattr(main,'microsoft_graph_send_email',lambda *args:mails.append(args))
         assert failed.json()['id'] in oktorun.send_due(main,integration._lock)['sent']
         assert not oktorun.send_due(main,integration._lock)['sent']

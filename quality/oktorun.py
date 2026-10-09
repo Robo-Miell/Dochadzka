@@ -30,7 +30,8 @@ def start(identity,jid,scope):
         if state['job_id']!=jid or state['scope']!=scope:
             con.execute('UPDATE oktorun_state SET job_id=?,scope=?,generation=?,approval_id=NULL WHERE user_id=?',(jid,scope,str(uuid.uuid4()),identity['id']))
             state=lock_state(con,identity['id'])
-        return {'generation':state['generation'],'approved':bool(state['approval_id']),'questions':QUESTIONS,'revision':REVISION}
+        check=con.execute('SELECT id,passed FROM oktorun_checks WHERE user_id=? AND generation=?',(identity['id'],state['generation'])).fetchone()
+        return {'generation':state['generation'],'approved':bool(check),'passed':bool(check['passed']) if check else None,'questions':QUESTIONS,'revision':REVISION}
 
 def submit(identity,jid,scope,payload):
     answers=payload.get('answers')
@@ -40,15 +41,13 @@ def submit(identity,jid,scope,payload):
         state=lock_state(con,identity['id'])
         if not state or state['job_id']!=jid or state['scope']!=scope or state['generation']!=payload.get('generation'):
             raise HTTPException(409,'Zákazka sa zmenila. Otvor formulár OKtoRUN znova.')
-        if state['approval_id']:
-            return {'passed':True,'id':state['approval_id']}
         # Retry of the same failed form is idempotent. A deliberate new attempt gets a new generation.
         prior=con.execute('SELECT id,passed FROM oktorun_checks WHERE user_id=? AND generation=?',(identity['id'],state['generation'])).fetchone()
         if prior:return {'passed':bool(prior['passed']),'id':prior['id']}
         jidrow=legacy.get_job(con,jid,True)
         checkid=str(uuid.uuid4());passed=all(answers.values())
         con.execute('INSERT INTO oktorun_checks(id,user_id,job_id,generation,created_at,actor,job_label,questions,answers,passed) VALUES(?,?,?,?,?,?,?,?,?,?)',(checkid,identity['id'],jid,state['generation'],datetime.utcnow().isoformat()+'Z',json.dumps(identity,ensure_ascii=False),jidrow['order_number'],json.dumps({'revision':REVISION,'items':QUESTIONS},ensure_ascii=False),json.dumps(answers),int(passed)))
-        con.execute('UPDATE oktorun_state SET approval_id=? WHERE user_id=?',(checkid if passed else None,identity['id']))
+        con.execute('UPDATE oktorun_state SET approval_id=? WHERE user_id=?',(checkid,identity['id']))
         return {'passed':passed,'id':checkid}
 
 def retry(identity,jid,scope,generation):
@@ -61,9 +60,12 @@ def retry(identity,jid,scope,generation):
 
 def require_approval(con,identity,jid):
     state=lock_state(con,identity['id'])
-    if not state or state['job_id']!=jid or state['scope']!=identity.get('_oktorun_scope') or not state['approval_id']:
-        raise ValueError('Pred zadaním výsledkov vyplň OKtoRUN pre túto zákazku. Pri odpovedi NIE kontaktuj nadriadeného.')
-    return state['approval_id']
+    if not state or state['job_id']!=jid or state['scope']!=identity.get('_oktorun_scope'):
+        raise ValueError('Pred zadaním výsledkov vyplň OKtoRUN pre túto zákazku.')
+    check=con.execute('SELECT id FROM oktorun_checks WHERE user_id=? AND generation=?',(identity['id'],state['generation'])).fetchone()
+    if not check:raise ValueError('Pred zadaním výsledkov vyplň OKtoRUN pre túto zákazku.')
+    return check['id']
+
 
 def send_due(host,lock,check_id=None):
     sent,errors=[],[]
@@ -83,7 +85,7 @@ def send_due(host,lock,check_id=None):
                     recipient=manager.email
                 actor=json.loads(row['actor']);answers=json.loads(row['answers']);qs=json.loads(row['questions'])['items']
                 no='\n'.join(q['id']+'. '+q['text'] for q in qs if not answers[q['id']])
-                body=f"Operátor: {actor['display_name']} ({actor['username']})\nZákazka: {row['job_label']}\nČas (UTC): {row['created_at']}\n\nOKtoRUN nevyhovuje. Zadávanie výsledkov bolo zablokované a operátor bol vyzvaný kontaktovať nadriadeného.\n\nOdpovede NIE:\n{no}"
+                body=f"Operátor: {actor['display_name']} ({actor['username']})\nZákazka: {row['job_label']}\nČas (UTC): {row['created_at']}\n\nOKtoRUN nevyhovuje. Operátor bol upozornený, aby kontaktoval koordinátora. Zadávanie výsledkov zostáva povolené.\n\nOdpovede NIE:\n{no}"
                 host.microsoft_graph_send_email(f"MIELL OKtoRUN - NIE - {row['job_label']}",body,[recipient],[])
                 con.execute('UPDATE oktorun_checks SET notice_sent_at=?,notice_error=NULL WHERE id=?',(datetime.utcnow().isoformat()+'Z',cid));sent.append(cid)
         except Exception as exc:

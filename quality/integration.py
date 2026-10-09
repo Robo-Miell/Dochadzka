@@ -374,7 +374,7 @@ def register(host):
             if not result['passed']:
                 delivery=await run_in_threadpool(oktorun.send_due,host,_lock,result['id'])
                 result['email_pending']=bool(delivery['errors'])
-                result['message']='Nepokračuj v zadávaní výsledkov. Kontaktuj svojho nadriadeného.'
+                result['message']='Kontaktuj koordinátora. Záznam môžeš zadať aj pri odpovedi NIE.'
             return result
         if endpoint=='oktorun-history' and request.method=='GET':
             if user.role!='admin':raise HTTPException(403,'Len pre administrátora')
