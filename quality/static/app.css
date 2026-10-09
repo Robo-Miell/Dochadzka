@@ -35,3 +35,4 @@
 .records-scroll-area th{position:sticky;top:0;z-index:1}
 .records-scroll-area:focus-visible{outline:2px solid var(--green);outline-offset:-2px}
 @media(max-width:600px){.records-scroll-controls{gap:6px;padding:8px}.records-scroll-controls span{display:none}}
+.result-card[hidden]{display:none!important}

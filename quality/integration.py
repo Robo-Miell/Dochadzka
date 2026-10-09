@@ -46,6 +46,8 @@ def configure(data_dir):
             con.execute('ALTER TABLE users ADD COLUMN central_login TEXT')
         if 'location_id' not in legacy.table_columns(con, 'jobs'):
             con.execute('ALTER TABLE jobs ADD COLUMN location_id INTEGER')
+    from . import oktorun
+    oktorun.initialize()
     install_exports(legacy)
 
 
@@ -331,6 +333,9 @@ def run_due_quality_reports(host, now_local):
     from .milestones import send_due
     notices = send_due(host, now_local.date(), _lock)
     errors.extend(notices['errors'])
+    from . import oktorun
+    safety_notices=oktorun.send_due(host,_lock)
+    errors.extend(safety_notices['errors'])
     return {'sent': sent, 'skipped': skipped, 'errors': errors, 'milestones': notices}
 
 
@@ -343,12 +348,39 @@ def register(host):
 
     @app.get('/quality/{asset}')
     def quality_asset(asset: str):
-        if asset not in {'app.css', 'app.js', 'logo.png', 'shell.css', 'scanner.js', 'record-scroll.js'}:
+        if asset not in {'app.css', 'app.js', 'logo.png', 'shell.css', 'scanner.js', 'record-scroll.js', 'oktorun.js'}:
             raise HTTPException(404)
         return FileResponse(Path(legacy.STATIC_DIR) / asset)
 
     @app.api_route('/quality/api/{endpoint:path}', methods=['GET', 'POST', 'PUT', 'DELETE'])
     async def quality_api(endpoint: str, request: Request, user=Depends(host.get_current_user), session=Depends(host.db)):
+        from . import oktorun
+        import hashlib
+        scope=hashlib.sha256(request.headers.get('authorization','').encode()).hexdigest()
+        safety_match=re.fullmatch(r'jobs/(\d+)/oktorun/(start|submit|retry)',endpoint)
+        if safety_match and request.method=='POST':
+            jid=int(safety_match[1])
+            with legacy.db() as con:job=legacy.get_job(con,jid,True)
+            if not job or not job['active']:raise HTTPException(404,'Aktívna zákazka neexistuje')
+            if user.role!='admin' and job.get('location_id') not in host.assigned_location_ids(user):raise HTTPException(403,'K zákazke nemáš prístup')
+            identity=sync_identity(user)
+            action=safety_match[2]
+            if action=='start':return await run_in_threadpool(oktorun.start,identity,jid,scope)
+            try:payload=await request.json()
+            except Exception:raise HTTPException(400,'Neplatný formulár')
+            if not isinstance(payload,dict):raise HTTPException(400,'Neplatný formulár')
+            if action=='retry':return await run_in_threadpool(oktorun.retry,identity,jid,scope,payload.get('generation'))
+            result=await run_in_threadpool(oktorun.submit,identity,jid,scope,payload)
+            if not result['passed']:
+                delivery=await run_in_threadpool(oktorun.send_due,host,_lock,result['id'])
+                result['email_pending']=bool(delivery['errors'])
+                result['message']='Nepokračuj v zadávaní výsledkov. Kontaktuj svojho nadriadeného.'
+            return result
+        if endpoint=='oktorun-history' and request.method=='GET':
+            if user.role!='admin':raise HTTPException(403,'Len pre administrátora')
+            with legacy.db() as con:
+                rows=con.execute('SELECT * FROM oktorun_checks ORDER BY created_at DESC LIMIT 500').fetchall()
+                return {'checks':[dict(r) for r in rows]}
         analytics_match = re.fullmatch(r'jobs/(\d+)/analytics', endpoint)
         analytics_export = endpoint in {'export/pdf', 'export/xlsx'} and request.query_params.get('analytics') == '1'
         if request.method == 'GET' and (analytics_match or analytics_export):
@@ -454,6 +486,7 @@ def register(host):
             if not isinstance(payload, dict):
                 raise HTTPException(400, 'Očakáva sa objekt')
         identity = sync_identity(user)
+        identity['_oktorun_scope']=scope
         if request.method in {'POST','PUT'} and re.fullmatch(r'jobs(?:/\d+)?',endpoint):
             if user.role != 'admin':
                 raise HTTPException(403, 'Len pre administrátora')

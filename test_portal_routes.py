@@ -13,6 +13,14 @@ from fastapi.testclient import TestClient
 import main
 
 
+def approve_oktorun(client,headers,jid):
+    response=client.post(f'/quality/api/jobs/{jid}/oktorun/start',headers=headers,json={})
+    assert response.status_code==200,response.text
+    d=response.json()
+    response=client.post(f'/quality/api/jobs/{jid}/oktorun/submit',headers=headers,json={'generation':d['generation'],'answers':{str(i):True for i in range(1,14)}})
+    assert response.status_code==200 and response.json()['passed'],response.text
+
+
 def teardown_module():
     main.engine.dispose()
     # Legacy SQLite handlers can leave connections pending garbage collection.
@@ -141,6 +149,7 @@ def test_quality_job_access_follows_assigned_locations():
         assert {j['id'] for j in jobs} <= ids(admin,'?all=1')
         def submit(job, headers=op):
             return client.post('/quality/api/records',headers=headers,json=dict(job_id=job['id'],part_id=job['parts'][0]['id'],checked_items=1,ok_items=1,nok_items=0,reworked_ok=0,reworked_nok=0,shift='R'))
+        approve_oktorun(client,op,jobs[0]['id'])
         assert submit(jobs[0]).status_code == 201
         assert submit(jobs[0],admin).status_code == 201
         analytics_url=f"/quality/api/jobs/{jobs[0]['id']}/analytics"
@@ -285,6 +294,7 @@ def test_job_milestones(monkeypatch):
         sent=[]
         monkeypatch.setattr(main,'microsoft_graph_send_email',lambda *args:sent.append(args))
         assert not milestones.send_due(main,date(2026,10,2),integration._lock)['sent']
+        approve_oktorun(client,op,jid)
         second=record(1,op)
         p=client.get(f'/quality/api/jobs/{jid}/progress',headers=op)
         assert p.status_code==200 and p.json()['checked_total']==90 and p.json()['remaining']==10
@@ -338,6 +348,7 @@ def test_transactional_record_history(monkeypatch):
         body=dict(order_number='AUDIT-JOB',brief_description='Audit test',location_id=loc,norm_mode='ct',norm_ct_seconds=1,parts=[{'item_number':'AUDIT-PART'}])
         job=client.post('/quality/api/jobs',headers=admin,json=body).json()['job']
         record=dict(job_id=job['id'],part_id=job['parts'][0]['id'],checked_items=10,ok_items=10,nok_items=0,shift='R')
+        approve_oktorun(client,op,job['id'])
         created=client.post('/quality/api/records',headers=op,json=record);assert created.status_code==201,created.text
         qid=created.json()['id'];qurl=f'/quality/api/record-history?record_id={qid}'
         assert client.get(qurl,headers=op).status_code==403
@@ -355,3 +366,57 @@ def test_transactional_record_history(monkeypatch):
         with legacy.db() as con:assert con.execute('SELECT checked_items FROM records WHERE id=?',(qid,)).fetchone()[0]==12
         assert client.delete(f"/quality/api/jobs/{job['id']}?force=1",headers=admin).status_code==200
         h=client.get(qurl,headers=admin).json()['history'];assert len(h)==5 and h[0]['action']=='delete' and h[0]['before']['checked_items']==12
+
+
+def test_oktorun_gate_and_notifications(monkeypatch):
+    from quality import oktorun,integration,legacy
+    with TestClient(main.app) as client:
+        def auth(login,password):
+            r=client.post('/api/auth/login',json=dict(login=login,password=password));assert r.status_code==200
+            return {'Authorization':'Bearer '+r.json()['access_token']}
+        admin=auth('admin','PortalTest123!');aid=client.get('/api/me',headers=admin).json()['id']
+        client.patch(f'/api/users/{aid}',headers=admin,json={'email':'manager@example.com'})
+        loc=client.post('/api/locations',headers=admin,json={'name':'OKtoRUN site'}).json()['id']
+        client.post('/api/users',headers=admin,json=dict(personal_number='ok-op',name='OK Operator',login='ok-op',password='OkOperator123!',role='employee',location_ids=[loc]))
+        op=auth('ok-op','OkOperator123!')
+        jobs=[]
+        for number in ['OK-A','OK-B']:
+            r=client.post('/quality/api/jobs',headers=admin,json=dict(order_number=number,brief_description='OKtoRUN test',location_id=loc,norm_mode='ct',norm_ct_seconds=1,project_manager_id=aid,parts=[{'item_number':number+'-PART'}]));assert r.status_code==201,r.text
+            jobs.append(r.json()['job'])
+        def record(j):return client.post('/quality/api/records',headers=op,json=dict(job_id=j['id'],part_id=j['parts'][0]['id'],checked_items=1,ok_items=1,nok_items=0,shift='R'))
+        def start(j):return client.post(f"/quality/api/jobs/{j['id']}/oktorun/start",headers=op,json={}).json()
+        def submit(j,d,answers):return client.post(f"/quality/api/jobs/{j['id']}/oktorun/submit",headers=op,json={'generation':d['generation'],'answers':answers})
+        assert record(jobs[0]).status_code==400
+        d=start(jobs[0]);assert len(d['questions'])==13 and not d['approved']
+        yes={str(i):True for i in range(1,14)}
+        assert submit(jobs[0],d,{}).status_code==400
+        assert submit(jobs[0],d,{**yes,'1':'yes'}).status_code==400
+        mails=[];monkeypatch.setattr(main,'microsoft_graph_send_email',lambda *args:mails.append(args))
+        no={**yes,'2':False}
+        failed=submit(jobs[0],d,no);assert failed.status_code==200 and not failed.json()['passed']
+        assert len(mails)==1 and mails[0][2]==['manager@example.com'] and 'nadriadeného' in mails[0][1]
+        assert record(jobs[0]).status_code==400
+        assert not submit(jobs[0],d,yes).json()['passed'] and len(mails)==1
+        retry=client.post(f"/quality/api/jobs/{jobs[0]['id']}/oktorun/retry",headers=op,json={'generation':d['generation']}).json()
+        passed=submit(jobs[0],retry,yes);assert passed.json()['passed']
+        saved=record(jobs[0]);assert saved.status_code==201,saved.text
+        with legacy.db() as con:assert con.execute('SELECT oktorun_id FROM records WHERE id=?',(saved.json()['id'],)).fetchone()[0]==passed.json()['id']
+        assert start(jobs[0])['approved'] and record(jobs[0]).status_code==201
+        d2=start(jobs[1]);assert not d2['approved']
+        assert record(jobs[0]).status_code==400 and record(jobs[1]).status_code==400
+        assert submit(jobs[0],retry,yes).status_code==409
+        assert not start(jobs[0])['approved']
+        d2=start(jobs[1])
+        def fail(*args):raise RuntimeError('test mail outage')
+        monkeypatch.setattr(main,'microsoft_graph_send_email',fail)
+        failed=submit(jobs[1],d2,no);assert failed.json()['email_pending']
+        assert record(jobs[1]).status_code==400
+        monkeypatch.setattr(main,'microsoft_graph_send_email',lambda *args:mails.append(args))
+        assert failed.json()['id'] in oktorun.send_due(main,integration._lock)['sent']
+        assert not oktorun.send_due(main,integration._lock)['sent']
+        assert client.get('/quality/api/oktorun-history',headers=op).status_code==403
+        checks=client.get('/quality/api/oktorun-history',headers=admin).json()['checks'];assert len(checks)>=3
+        # A saved approval from another login context cannot authorize a record.
+        with main.SessionLocal() as session:
+            qid=integration.sync_identity(session.query(main.User).filter_by(login='ok-op').one())
+        assert not oktorun.start(qid,jobs[0]['id'],'different-login')['approved']

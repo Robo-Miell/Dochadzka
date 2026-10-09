@@ -944,10 +944,13 @@ class Handler(BaseHTTPRequestHandler):
             u=self._auth();
             if not u:return
             try:
-                con=db(); v=prepare_record(con,data,u,False)
+                con=db()
+                from .oktorun import require_approval
+                approval=require_approval(con,u,int(data.get('job_id') or 0)) if u['role']!='admin' else None
+                v=prepare_record(con,data,u,False)
                 cur=con.execute('''INSERT INTO records(job_id,part_id,user_id,record_date,delivery_note,checked_items,ok_items,nok_items,reworked_ok,reworked_nok,note,job_snapshot,part_snapshot,error_counts,shift,work_time_seconds,norm_seconds_per_item,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                     (v['jid'],v['pid'],data.get('_record_user_id',u['id']),v['record_date'],v['delivery_note'],v['checked'],v['ok'],v['nok'],v['rwok'],v['rwnok'],v['note'],v['job_snapshot'],v['part_snapshot'],json.dumps(v['counts']),v['shift'],v['work_time_seconds'],v['norm_seconds'],datetime.now().isoformat(timespec='seconds')))
-                rid=cur.lastrowid; audit_record(con,rid,u,'create',{}); con.commit(); con.close(); return self._json({'ok':True,'id':rid,'norm_seconds_per_item':v['norm_seconds'],'work_time_seconds':v['work_time_seconds']},201)
+                rid=cur.lastrowid; con.execute('UPDATE records SET oktorun_id=? WHERE id=?',(approval,rid)); audit_record(con,rid,u,'create',{}); con.commit(); con.close(); return self._json({'ok':True,'id':rid,'norm_seconds_per_item':v['norm_seconds'],'work_time_seconds':v['work_time_seconds']},201)
             except Exception as e:
                 try: con.close()
                 except: pass

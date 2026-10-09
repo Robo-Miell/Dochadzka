@@ -1,0 +1,54 @@
+[
+  {
+    "id": "1",
+    "text": "Pracovné prostredie je bezpečné?"
+  },
+  {
+    "id": "2",
+    "text": "Poznáte kontakt na svojho priameho nadriadeného?"
+  },
+  {
+    "id": "3",
+    "text": "Je rozloženie pracoviska správne a tok materiálu primeraný?"
+  },
+  {
+    "id": "4",
+    "text": "Je poriadok v pracovnom prostredí? Je tam iba požadované pracovné náradie?"
+  },
+  {
+    "id": "5",
+    "text": "Používate všetky predpísané ochranné prostriedky?"
+  },
+  {
+    "id": "6",
+    "text": "Je materiál na pracovisku správne označený? Pracovník používa správne značenie dielov podľa pracovných inštrukcií?"
+  },
+  {
+    "id": "7",
+    "text": "Je k dispozícii pracovná inštrukcia schválená zákazníkom? Vie pracovník, kde to má nájsť?"
+  },
+  {
+    "id": "8",
+    "text": "Bol pracovník vyškolený? Je zaevidovaný v školiacom denníku?"
+  },
+  {
+    "id": "9",
+    "text": "Dodržiava sa pracovná inštrukcia podľa smernice MIELL?"
+  },
+  {
+    "id": "10",
+    "text": "Sú k dispozícii všetky potrebné prostriedky pre výkon práce, sú v dobrom stave/kalibrované?"
+  },
+  {
+    "id": "11",
+    "text": "Je denné hlásenie a check list k dispozícii?"
+  },
+  {
+    "id": "12",
+    "text": "Sú známe Quality Alert-y (reklamácie)?"
+  },
+  {
+    "id": "13",
+    "text": "Všetky podmienky sú splnené na zozname kontrolných otázok pre spustenie zmenovej prevádzky?"
+  }
+]
