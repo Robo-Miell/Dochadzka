@@ -2510,3 +2510,6 @@ unified_routes.register(sys.modules[__name__])
 
 from audit_support import install as install_audit
 install_audit(sys.modules[__name__])
+
+from scanner_backup import install as install_scanner_backup
+install_scanner_backup(sys.modules[__name__])
